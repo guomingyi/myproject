@@ -2,7 +2,7 @@
 
 # ./push "xxx"
 
-git add .;
+git add --all;
 
 git commit -am "<$1>";
 
