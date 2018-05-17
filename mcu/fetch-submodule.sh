@@ -5,6 +5,10 @@ if [ -f "$PWD/vendor/libopencm3/Makefile" ]; then
   echo "<~~>"
 else
 
+if [ ! -d ./vendor ];then
+  mkdir ./vendor
+fi
+
 echo -e "\033[32m fetch submodule..\n\033[0m" && \
 cd vendor && \
 git clone https://github.com/libopencm3/libopencm3.git  && \
