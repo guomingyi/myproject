@@ -1,25 +1,29 @@
 # myproject
 
-mcu
-stlink
+1. Souce code：
+> mcu
+> stlink
 
+2. how to build project ?
+> install docker
+> cd docker-image && ./unpkg
+> cd mcu && make.sh
 
-gdb online debug:
-1. download arm-none-eabi-gdb
+3. Use gdb online debug
+> download arm-none-eabi-gdb
 wget https://launchpad.net/gcc-arm-embedded/5.0/5-2016-q3-update/+download/gcc-arm-none-eabi-5_4-2016q3-20160926-linux.tar.bz2
 tar -xvf gcc-arm-none-eabi-5_4-2016q3-20160926-linux.tar.bz2 -d /usr/
 
-2. install stlink
+> install stlink tools.
 
-3. 执行st-util
-$ st-util
+> $ st-util
 ..
 2018-05-19T15:09:10 INFO common.c: Device connected is: F2 device, id 0x20076411
 2018-05-19T15:09:10 INFO common.c: SRAM size: 0x20000 bytes (128 KiB), Flash: 0x100000 bytes (1024 KiB) in pages of 131072 bytes
 2018-05-19T15:09:10 INFO gdb-server.c: Chip ID is 00000411, Core ID is  2ba01477.
 2018-05-19T15:09:10 INFO gdb-server.c: Listening at *:4242...
 
-另起一终端,启动调试即可：
+> new window:
 $ arm-none-eabi-gdb usart_printf.elf 
 GNU gdb (GNU Tools for ARM Embedded Processors) 7.10.1.20160923-cvs
 Copyright (C) 2015 Free Software Foundation, Inc.
