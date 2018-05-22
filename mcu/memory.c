@@ -28,6 +28,7 @@
 void memory_protect(void)
 {
 #if MEMORY_PROTECT
+error!!!
 	// Reference STM32F205 Flash programming manual revision 5 http://www.st.com/resource/en/programming_manual/cd00233952.pdf
 	// Section 2.6 Option bytes
 	//                     set RDP level 2                   WRP for sectors 0 and 1            flash option control register matches
