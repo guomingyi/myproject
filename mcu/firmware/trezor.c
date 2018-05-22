@@ -87,6 +87,8 @@ void check_lock_screen(void)
 
 int main(void)
 {
+    usart_init();
+    printf("---app---start----\n");
 #ifndef APPVER
 	setup();
 	__stack_chk_guard = random32(); // this supports compiler provided unpredictable stack protection checks

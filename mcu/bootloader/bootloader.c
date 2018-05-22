@@ -86,6 +86,7 @@ void __attribute__((noreturn)) load_app(int signed_firmware)
 
 bool firmware_present(void)
 {
+return true;
 #ifndef APPVER
 	if (memcmp((const void *)FLASH_META_MAGIC, "TRZR", 4)) { // magic does not match
 		return false;
@@ -125,6 +126,7 @@ void bootloader_loop(void)
 
 int main(void)
 {
+    /** usart_init(); */
 #ifndef APPVER
 	setup();
 #endif

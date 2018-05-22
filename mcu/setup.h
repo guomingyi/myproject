@@ -21,6 +21,8 @@
 #define __SETUP_H__
 
 #include <stdint.h>
+#include <stdio.h>
+#include <errno.h>
 
 extern uint32_t __stack_chk_guard;
 
@@ -28,5 +30,8 @@ void setup(void);
 void setupApp(void);
 
 void mpu_config(void);
+
+int _write(int file, char *ptr, int len);
+int usart_init(void);
 
 #endif

@@ -31,7 +31,7 @@ static void clock_setup(void)
 {
 	/* Enable clocks on all the peripherals we are going to use. */
 	rcc_periph_clock_enable(RCC_USART1);
-	rcc_periph_clock_enable(RCC_GPIOC);
+	/** rcc_periph_clock_enable(RCC_GPIOC); */
 	rcc_periph_clock_enable(RCC_GPIOA);
 }
 
@@ -50,12 +50,6 @@ static void usart_setup(void)
 
 	/* Finally enable the USART. */
 	usart_enable(USART1);
-}
-
-static void gpio_setup(void)
-{
-	gpio_mode_setup(GPIOC, GPIO_MODE_OUTPUT, GPIO_MODE_OUTPUT, GPIO3);
-	gpio_set(GPIOC, GPIO3);
 }
 
 /*
@@ -80,29 +74,21 @@ static inline void delay(uint32_t wait)
     while (--wait > 0) __asm__("nop");
 }
 
-int main(void)
+#define log(x) \
+do { \
+    char *p = x; \
+    while(*p != 0) \
+        usart_send_blocking(USART1, *p++); \
+} while(0)
+
+
+int usart_init(void)
 {
-    int counter = 0;
-    float fcounter = 0.0;
-    double dcounter = 0.0;
-
     clock_setup();
-    gpio_setup();
     usart_setup();
-
-    /*
-     * Write Hello World an integer, float and double all over
-     * again while incrementing the numbers.
-     */
-    while (1) {
-        gpio_toggle(GPIOC, GPIO3);
-        printf("Hello World! %i %f %f\r\n", counter, fcounter,dcounter);
-
-        counter++;
-        fcounter += 0.01;
-        dcounter += 0.01;
-        delay(1000*1000);
-    }
-
+    printf("hello world !\n");
+    /** log("hello world\n"); */
     return 0;
 }
+
+
