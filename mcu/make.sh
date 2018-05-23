@@ -26,7 +26,6 @@ if [ "y$ACTION" = "yclean" ] || [ "y$ACTION" = "yc" ] || [ "y$ACTION" = "yall" ]
   make clean -C firmware/protob && \
   make clean -C vendor/libopencm3
   echo -e "\033[32m #### clean done!#### \033[0m" 
-
   if [ ! "y$ACTION" = "yall" ];then
       exit 0;
   fi
@@ -36,22 +35,50 @@ if [ ! -d ./build ];then
   mkdir ./build
 fi
 
-# docker build
-docker run -it -v $PWD:/tmp/build $IMAGE /bin/sh -c "\
-  cd /tmp/build && \
-  make -C vendor/libopencm3 && \
-  make && \
-  make -C bootloader align && \
-  cp bootloader/bootloader.bin $BINFILE_BL && \
-  cp bootloader/bootloader.elf $ELFFILE_BL && \
-  make -C vendor/libopencm3 && \
-  make -C vendor/nanopb/generator/proto && \
-  make -C firmware/protob && \
-  make && \
-  make -C firmware sign && \
-  cp firmware/trezor.bin $BINFILE_FW && \
-  cp firmware/trezor.elf $ELFFILE_FW \
+
+if [ "y$ACTION" = "ybl" ] ;then
+  docker run -it -v $PWD:/tmp/build $IMAGE /bin/sh -c "\
+    cd /tmp/build && \
+    make clean && \
+    make clean -C bootloader && \
+    make && \
+    make -C bootloader align && \
+    cp bootloader/bootloader.bin $BINFILE_BL && \
+    cp bootloader/bootloader.elf $ELFFILE_BL \
   "
+fi
+
+
+if [ "y$ACTION" = "yfw" ] ;then
+  docker run -it -v $PWD:/tmp/build $IMAGE /bin/sh -c "\
+    cd /tmp/build && \
+    make clean && \
+    make clean -C firmware && \
+    make && \
+    make -C firmware sign && \
+    cp firmware/trezor.bin $BINFILE_FW && \
+    cp firmware/trezor.elf $ELFFILE_FW \
+  "
+fi
+
+# docker build
+if [ "y$ACTION" = "yall" ] ;then
+  docker run -it -v $PWD:/tmp/build $IMAGE /bin/sh -c "\
+    cd /tmp/build && \
+    make -C vendor/libopencm3 && \
+    make && \
+    make -C bootloader align && \
+    cp bootloader/bootloader.bin $BINFILE_BL && \
+    cp bootloader/bootloader.elf $ELFFILE_BL && \
+    make -C vendor/libopencm3 && \
+    make -C vendor/nanopb/generator/proto && \
+    make -C firmware/protob && \
+    make && \
+    make -C firmware sign && \
+    cp firmware/trezor.bin $BINFILE_FW && \
+    cp firmware/trezor.elf $ELFFILE_FW \
+  "
+fi
 
 # show
 /usr/bin/env python -c "
