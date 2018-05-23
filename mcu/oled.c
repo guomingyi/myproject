@@ -47,11 +47,11 @@
 #define OLED_SEGREMAP			0xA0
 #define OLED_CHARGEPUMP			0x8D
 
-#define SPI_BASE			SPI1
+#define SPI_BASE			SPI2
 #define OLED_DC_PORT			GPIOB
 #define OLED_DC_PIN			GPIO0	// PB0 | Data/Command
-#define OLED_CS_PORT			GPIOA
-#define OLED_CS_PIN			GPIO4	// PA4 | SPI Select
+#define OLED_CS_PORT			GPIOC
+#define OLED_CS_PIN			GPIO7	// PA4 | SPI Select
 #define OLED_RST_PORT			GPIOB
 #define OLED_RST_PIN			GPIO1	// PB1 | Reset display
 
