@@ -31,7 +31,10 @@ void setupApp(void);
 
 void mpu_config(void);
 
-int _write(int file, char *ptr, int len);
-int usart_init(void);
+// for uart print
+#define USART_PRINT (1)
 
+void uart_str(char *s);
+void uart_val(int a);
+int usart_init(void);
 #endif

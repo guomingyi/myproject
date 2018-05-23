@@ -81,6 +81,10 @@ void __attribute__((noreturn)) load_app(int signed_firmware)
 	// zero out SRAM
 	memset_reg(_ram_start, _ram_end, 0);
 
+    uart_str("jump_to_firmware FLASH_APP_START: \n");
+    uart_val(FLASH_APP_START);
+    int start = FLASH_APP_START;
+    uart_val(start);
 	jump_to_firmware((const vector_table_t *) FLASH_APP_START, signed_firmware);
 }
 
@@ -126,11 +130,14 @@ void bootloader_loop(void)
 
 int main(void)
 {
-    /** usart_init(); */
+    usart_init();
+    uart_str("bootloader main \n");
 #ifndef APPVER
 	setup();
 #endif
-	__stack_chk_guard = random32(); // this supports compiler provided unpredictable stack protection checks
+#if !USART_PRINT
+    __stack_chk_guard = random32(); // this supports compiler provided unpredictable stack protection checks
+#endif
 #ifndef APPVER
 	memory_protect();
 	oledInit();
@@ -141,6 +148,8 @@ int main(void)
 	uint16_t state = gpio_port_read(BTN_PORT);
 	int unpressed = ((state & BTN_PIN_YES) == BTN_PIN_YES || (state & BTN_PIN_NO) == BTN_PIN_NO);
 
+    uart_val(unpressed);
+    uart_str("firmware_present \n");
 	if (firmware_present() && unpressed) {
 
 		oledClear();
@@ -148,17 +157,19 @@ int main(void)
 		oledRefresh();
 
 		uint8_t hash[32];
-		int signed_firmware = signatures_ok(hash);
+		int signed_firmware = SIG_OK;//signatures_ok(hash);
 		if (SIG_OK != signed_firmware) {
 			show_unofficial_warning(hash);
 		}
 
 		delay(100000);
 
+        uart_str("load_app: \n");
 		load_app(signed_firmware);
 	}
 #endif
 
+    uart_str("bootloader_loop \n");
 	bootloader_loop();
 
 	return 0;

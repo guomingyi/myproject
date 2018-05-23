@@ -55,6 +55,8 @@ static void usart_setup(void)
 /*
 * stdio libc will call this func when use printf.
 */
+
+#if 0
 int _write(int file, char *ptr, int len)
 {
 	int i;
@@ -68,27 +70,48 @@ int _write(int file, char *ptr, int len)
 	errno = EIO;
 	return -1;
 }
+#endif
 
 static inline void delay(uint32_t wait)
 {
     while (--wait > 0) __asm__("nop");
 }
 
-#define log(x) \
-do { \
-    char *p = x; \
-    while(*p != 0) \
-        usart_send_blocking(USART1, *p++); \
-} while(0)
-
-
 int usart_init(void)
 {
     clock_setup();
     usart_setup();
-    printf("hello world !\n");
-    /** log("hello world\n"); */
     return 0;
 }
 
+
+void uart_val(int a)
+{ 
+    char buf[64] = {"val:"};
+    char *p = NULL; 
+    int t = 0;
+    int i = 4;
+
+    t = a;
+    while (t > 0) {
+        buf[i++] = (t % 10) + '0';
+        t = t/10;
+    }
+
+    if (i > 0)
+        buf[i] = ' ';
+
+    p = buf;
+    while(p != NULL && *p != 0) { 
+        usart_send_blocking(USART1, *p++); 
+    }  
+}
+
+void uart_str(char *s) 
+{
+    char *p = s;
+    while(p != NULL && *p != 0) { 
+        usart_send_blocking(USART1, *p++); 
+    }
+}
 
