@@ -1,28 +1,16 @@
-ifneq ($(EMULATOR),1)
 OBJS += startup.o
-endif
-
-OBJS += usart.o
-
 OBJS += buttons.o
 OBJS += layout.o
 OBJS += oled.o
 OBJS += rng.o
 OBJS += serialno.o
-
-ifneq ($(EMULATOR),1)
 OBJS += setup.o
-endif
-
 OBJS += util.o
 OBJS += memory.o
-
-ifneq ($(EMULATOR),1)
 OBJS += timer.o
-endif
-
 OBJS += gen/bitmaps.o
 OBJS += gen/fonts.o
+OBJS += uart.o
 
 libtrezor.a: $(OBJS)
 	$(AR) rcs libtrezor.a $(OBJS)

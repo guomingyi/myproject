@@ -35,8 +35,8 @@ void oledDebug(const char *line)
 	oledClear();
 	for (int i = 0; i < 8; i++) {
 		if (lines[i]) {
-			oledDrawChar(0, i * 8, '0' + (id + i) % 10, FONT_STANDARD);
-			oledDrawString(8, i * 8, lines[i], FONT_STANDARD);
+			oledDrawChar(0, i * 8, '0' + (id + i) % 10, 1);
+			oledDrawString(8, i * 8, lines[i]);
 		}
 	}
 	oledRefresh();
@@ -47,11 +47,7 @@ void debugLog(int level, const char *bucket, const char *text)
 {
 	(void)level;
 	(void)bucket;
-#if EMULATOR
-	puts(text);
-#else
 	oledDebug(text);
-#endif
 }
 
 char *debugInt(const uint32_t i)

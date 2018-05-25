@@ -24,6 +24,8 @@
 #include <libopencm3/stm32/usart.h>
 #include <libopencm3/cm3/nvic.h>
 #include <libopencm3/stm32/rcc.h>
+#include <libopencm3/cm3/vector.h>
+#include <libopencm3/cm3/scb.h>
 
 int _write(int file, char *ptr, int len);
 
@@ -80,6 +82,21 @@ static inline void delay(uint32_t wait)
     while (--wait > 0) __asm__("nop");
 }
 
+void __attribute__((noreturn)) load_app(void)
+{
+    const uint32_t addr = 0x08000000;
+    SCB_VTOR = addr; // & 0xFFFF;
+
+    // Set stack pointer
+    printf("######load_app : %lx\r\n", addr);
+    __asm__ volatile("msr msp, %0"::"g" (*(volatile uint32_t *)addr));
+
+    printf("######jump to addr: %lx\r\n", addr);
+    // Jump to address
+    (*(void (**)())(0x08000004))();
+    for (;;);
+}
+
 int main(void)
 {
     int counter = 0;
@@ -96,12 +113,16 @@ int main(void)
      */
     while (1) {
         gpio_toggle(GPIOC, GPIO3);
-        printf("Hello World! %i %f %f\r\n", counter, fcounter,dcounter);
+        printf("Hello World-0x08020000! %i %f %f\r\n", counter, fcounter,dcounter);
 
         counter++;
         fcounter += 0.01;
         dcounter += 0.01;
         delay(1000*1000);
+
+        if (counter >= 10) {
+            load_app();
+        }
     }
 
     return 0;

@@ -62,13 +62,9 @@
 
  */
 
-#if EMULATOR
-#define FLASH_ORIGIN            ((uint32_t) emulator_flash_base)
-#else
 #define FLASH_ORIGIN		(0x08000000)
-#endif
 
-#define FLASH_TOTAL_SIZE	(512 * 1024)
+#define FLASH_TOTAL_SIZE	(1024 * 1024)
 
 #define FLASH_BOOT_START	(FLASH_ORIGIN)
 #define FLASH_BOOT_LEN		(0x8000)
@@ -76,7 +72,7 @@
 #define FLASH_META_START	(FLASH_BOOT_START + FLASH_BOOT_LEN)
 #define FLASH_META_LEN		(0x8000)
 
-#define FLASH_APP_START		(FLASH_META_START + FLASH_META_LEN)
+#define FLASH_APP_START		(0x08010000)//(FLASH_META_START + FLASH_META_LEN)
 
 #define FLASH_META_MAGIC	(FLASH_META_START)
 #define FLASH_META_CODELEN	(FLASH_META_START + 0x0004)
@@ -103,7 +99,6 @@
 #define FLASH_CODE_SECTOR_LAST	7
 
 void memory_protect(void);
-void memory_write_unlock(void);
 int memory_bootloader_hash(uint8_t *hash);
 
 #endif

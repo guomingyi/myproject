@@ -20,9 +20,6 @@
 #ifndef __SIGNATURES_H__
 #define __SIGNATURES_H__
 
-#define SIG_OK      0x5A3CA5C3
-#define SIG_FAIL    0x00000000
-
 int signatures_ok(uint8_t *store_hash);
 
 #endif

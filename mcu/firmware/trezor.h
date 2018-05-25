@@ -20,11 +20,9 @@
 #ifndef __TREZOR_H__
 #define __TREZOR_H__
 
-#include <stdint.h>
-
 #define VERSION_MAJOR 1
 #define VERSION_MINOR 6
-#define VERSION_PATCH 1
+#define VERSION_PATCH 0
 
 #define STR(X) #X
 #define VERSTR(X) STR(X)
@@ -36,8 +34,5 @@
 #ifndef DEBUG_LOG
 #define DEBUG_LOG 0
 #endif
-
-/* Screen timeout */
-extern uint32_t system_millis_lock_start;
 
 #endif

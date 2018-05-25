@@ -19,20 +19,20 @@ cd ../ && \
 \
 git clone https://github.com/nanopb/nanopb.git && \
 cd nanopb && \
-git checkout 71ba4e68da4b3c986d454e34c4666a82fbdf4176 && \
-echo -e "\033[32m #### nanopb 71ba4e68da4b3c986d454e34c4666a82fbdf4176 ####\n\033[0m"  && \
+git checkout 54c34a9fda152937d4cd0c7fd85c067fca23af75 && \
+echo -e "\033[32m #### nanopb 54c34a9fda152937d4cd0c7fd85c067fca23af75 ####\n\033[0m"  && \
 cd ../ && \
 \
 git clone https://github.com/trezor/trezor-common.git && \
 cd trezor-common && \
-git checkout 0924bd6826bb63f66010e2e511356d54ea733df3 && \
-echo -e "\033[32m #### trezor-common 0924bd6826bb63f66010e2e511356d54ea733df3 ####\n\033[0m"  && \
+git checkout 7325936f8612ce1cadff6cfb0c0045b3668c3260 && \
+echo -e "\033[32m #### trezor-common 7325936f8612ce1cadff6cfb0c0045b3668c3260 ####\n\033[0m"  && \
 cd ../ && \
 \
 git clone https://github.com/trezor/trezor-crypto.git && \
 cd trezor-crypto && \
-git checkout bb4c3d052561bd31856a03d975ca226571f6a893 && \
-echo -e "\033[32m #### trezor-crypto bb4c3d052561bd31856a03d975ca226571f6a893 ####\n\033[0m"  && \
+git checkout 95a522bf1a453880050521661258d7943e966d1f && \
+echo -e "\033[32m #### trezor-crypto 95a522bf1a453880050521661258d7943e966d1f ####\n\033[0m"  && \
 cd ../ && \
 \
 git clone https://github.com/trezor/trezor-qrenc.git && \

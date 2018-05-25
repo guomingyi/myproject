@@ -30,11 +30,7 @@
 #include "timer.h"
 #include "buttons.h"
 #include "gettext.h"
-#include "bl_check.h"
 #include "fastflash.h"
-
-/* Screen timeout */
-uint32_t system_millis_lock_start;
 
 void check_lock_screen(void)
 {
@@ -77,7 +73,7 @@ void check_lock_screen(void)
 
 	// if homescreen is shown for longer than 10 minutes, lock too
 	if (layoutLast == layoutHome) {
-		if ((timer_ms() - system_millis_lock_start) >= 600000) {
+		if ((system_millis - system_millis_lock_start) >= 600000) {
 			// lock the screen
 			session_clear(true);
 			layoutScreensaver();
@@ -87,44 +83,54 @@ void check_lock_screen(void)
 
 int main(void)
 {
-    usart_init();
-    printf("---app---start----\n");
+    uart_init("application-main():\n");
 #ifndef APPVER
 	setup();
 	__stack_chk_guard = random32(); // this supports compiler provided unpredictable stack protection checks
 	oledInit();
 #else
-	check_bootloader();
+    uart_printf("application-setupApp():\n");
 	setupApp();
+    #ifndef UART_DEBUG
+    ssss
 	__stack_chk_guard = random32(); // this supports compiler provided unpredictable stack protection checks
+    #endif
 #endif
 
 #if FASTFLASH
+aaa
 	uint16_t state = gpio_port_read(BTN_PORT);
 	if ((state & BTN_PIN_NO) == 0) {
 		run_bootloader();
 	}
 #endif
 
+    uart_printf("application-timer_init():\n");
 	timer_init();
 
-#ifdef APPVER
-	// enable MPU (Memory Protection Unit)
-	mpu_config();
-#endif
-
 #if DEBUG_LINK
+fdf
 	oledSetDebugLink(1);
-	storage_wipe();
+	storage_reset(); // wipe storage if debug link
+	storage_reset_uuid();
+	storage_commit();
+	storage_clearPinArea(); // reset PIN failures if debug link
 #endif
 
+    uart_printf("application-oledDrawBitmap:bmp_logo64:\n");
 	oledDrawBitmap(40, 0, &bmp_logo64);
 	oledRefresh();
 
+    uart_printf("application-storage_init():\n");
 	storage_init();
+
+    uart_printf("application-layoutHome():\n");
 	layoutHome();
+
+    uart_printf("application-usbInit():\n");
 	usbInit();
 	for (;;) {
+        uart_printf("application-usbPoll():\n");
 		usbPoll();
 		check_lock_screen();
 	}

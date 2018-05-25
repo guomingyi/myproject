@@ -76,21 +76,17 @@ void show_unofficial_warning(const uint8_t *hash)
 	// everything is OK, user pressed 2x Continue -> continue program
 }
 
-void __attribute__((noreturn)) load_app(int signed_firmware)
+void __attribute__((noreturn)) load_app(void)
 {
 	// zero out SRAM
 	memset_reg(_ram_start, _ram_end, 0);
 
-    uart_str("jump_to_firmware FLASH_APP_START: \n");
-    uart_val(FLASH_APP_START);
-    int start = FLASH_APP_START;
-    uart_val(start);
-	jump_to_firmware((const vector_table_t *) FLASH_APP_START, signed_firmware);
+    uart_printf("load_vector_table:FLASH_APP_START\n");
+	load_vector_table((const vector_table_t *) FLASH_APP_START);
 }
 
 bool firmware_present(void)
 {
-return true;
 #ifndef APPVER
 	if (memcmp((const void *)FLASH_META_MAGIC, "TRZR", 4)) { // magic does not match
 		return false;
@@ -110,37 +106,38 @@ void bootloader_loop(void)
 	oledClear();
 	oledDrawBitmap(0, 0, &bmp_logo64);
 	if (firmware_present()) {
-		oledDrawString(52, 0, "TREZOR", FONT_STANDARD);
+		oledDrawString(52, 0, "TREZOR");
 		static char serial[25];
 		fill_serialno_fixed(serial);
-		oledDrawString(52, 20, "Serial No.", FONT_STANDARD);
-		oledDrawString(52, 40, serial + 12, FONT_STANDARD); // second part of serial
+		oledDrawString(52, 20, "Serial No.");
+		oledDrawString(52, 40, serial + 12); // second part of serial
 		serial[12] = 0;
-		oledDrawString(52, 30, serial, FONT_STANDARD);      // first part of serial
-		oledDrawStringRight(OLED_WIDTH - 1, OLED_HEIGHT - 8, "Loader " VERSTR(VERSION_MAJOR) "." VERSTR(VERSION_MINOR) "." VERSTR(VERSION_PATCH), FONT_STANDARD);
+		oledDrawString(52, 30, serial);      // first part of serial
+		oledDrawStringRight(OLED_WIDTH - 1, OLED_HEIGHT - 8, "Loader " VERSTR(VERSION_MAJOR) "." VERSTR(VERSION_MINOR) "." VERSTR(VERSION_PATCH));
 	} else {
-		oledDrawString(52, 10, "Welcome!", FONT_STANDARD);
-		oledDrawString(52, 30, "Please visit", FONT_STANDARD);
-		oledDrawString(52, 50, "trezor.io/start", FONT_STANDARD);
+		oledDrawString(52, 10, "Welcome!");
+		oledDrawString(52, 30, "Please visit");
+		oledDrawString(52, 50, "trezor.io/start");
 	}
 	oledRefresh();
 
+    uart_printf("bootloader-usbloop():\n");
 	usbLoop(firmware_present());
 }
 
 int main(void)
 {
-    usart_init();
-    uart_str("bootloader main \n");
+    uart_init("bootloader-main:\n");
 #ifndef APPVER
 	setup();
 #endif
-#if !USART_PRINT
-    __stack_chk_guard = random32(); // this supports compiler provided unpredictable stack protection checks
-#endif
+    #ifndef UART_DEBUG
+	__stack_chk_guard = random32(); // this supports compiler provided unpredictable stack protection checks
+    #endif
 #ifndef APPVER
 	memory_protect();
-	oledInit();
+    uart_printf("bootloader-oledInit:\n");
+    oledInit();
 #endif
 
 #ifndef APPVER
@@ -148,8 +145,7 @@ int main(void)
 	uint16_t state = gpio_port_read(BTN_PORT);
 	int unpressed = ((state & BTN_PIN_YES) == BTN_PIN_YES || (state & BTN_PIN_NO) == BTN_PIN_NO);
 
-    uart_val(unpressed);
-    uart_str("firmware_present \n");
+    uart_printf("bootloader-firmware_present():\n");
 	if (firmware_present() && unpressed) {
 
 		oledClear();
@@ -157,19 +153,21 @@ int main(void)
 		oledRefresh();
 
 		uint8_t hash[32];
-		int signed_firmware = SIG_OK;//signatures_ok(hash);
-		if (SIG_OK != signed_firmware) {
+		if (!signatures_ok(hash)) {
 			show_unofficial_warning(hash);
 		}
 
 		delay(100000);
 
-        uart_str("load_app: \n");
-		load_app(signed_firmware);
+		load_app();
 	}
 #endif
 
-    uart_str("bootloader_loop \n");
+    // for test
+    if(1) {
+        load_app();
+    }
+
 	bootloader_loop();
 
 	return 0;

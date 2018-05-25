@@ -22,13 +22,14 @@
 #include "sha2.h"
 #include "ripemd160.h"
 #include "pbkdf2.h"
-#include "aes/aes.h"
+#include "aes.h"
 #include "hmac.h"
 #include "bip32.h"
 #include "layout.h"
 #include "curves.h"
 #include "secp256k1.h"
 #include "address.h"
+#include "macros.h"
 #include "coins.h"
 #include "base58.h"
 #include "segwit_addr.h"
@@ -53,21 +54,21 @@ uint32_t ser_length(uint32_t len, uint8_t *out)
 	return 5;
 }
 
-uint32_t ser_length_hash(Hasher *hasher, uint32_t len)
+uint32_t ser_length_hash(SHA256_CTX *ctx, uint32_t len)
 {
 	if (len < 253) {
-		hasher_Update(hasher, (const uint8_t *)&len, 1);
+		sha256_Update(ctx, (const uint8_t *)&len, 1);
 		return 1;
 	}
 	if (len < 0x10000) {
 		uint8_t d = 253;
-		hasher_Update(hasher, &d, 1);
-		hasher_Update(hasher, (const uint8_t *)&len, 2);
+		sha256_Update(ctx, &d, 1);
+		sha256_Update(ctx, (const uint8_t *)&len, 2);
 		return 3;
 	}
 	uint8_t d = 254;
-	hasher_Update(hasher, &d, 1);
-	hasher_Update(hasher, (const uint8_t *)&len, 4);
+	sha256_Update(ctx, &d, 1);
+	sha256_Update(ctx, (const uint8_t *)&len, 4);
 	return 5;
 }
 
@@ -111,22 +112,18 @@ int gpgMessageSign(HDNode *node, const uint8_t *message, size_t message_len, uin
 	}
 }
 
-static void cryptoMessageHash(const CoinInfo *coin, const uint8_t *message, size_t message_len, uint8_t hash[HASHER_DIGEST_LENGTH]) {
-	Hasher hasher;
-	hasher_Init(&hasher, coin->curve->hasher_type);
-	hasher_Update(&hasher, (const uint8_t *)coin->signed_message_header, strlen(coin->signed_message_header));
-	uint8_t varint[5];
-	uint32_t l = ser_length(message_len, varint);
-	hasher_Update(&hasher, varint, l);
-	hasher_Update(&hasher, message, message_len);
-	hasher_Double(&hasher, hash);
-}
-
 int cryptoMessageSign(const CoinInfo *coin, HDNode *node, InputScriptType script_type, const uint8_t *message, size_t message_len, uint8_t *signature)
 {
-	uint8_t hash[HASHER_DIGEST_LENGTH];
-	cryptoMessageHash(coin, message, message_len, hash);
-
+	SHA256_CTX ctx;
+	sha256_Init(&ctx);
+	sha256_Update(&ctx, (const uint8_t *)coin->signed_message_header, strlen(coin->signed_message_header));
+	uint8_t varint[5];
+	uint32_t l = ser_length(message_len, varint);
+	sha256_Update(&ctx, varint, l);
+	sha256_Update(&ctx, message, message_len);
+	uint8_t hash[32];
+	sha256_Final(&ctx, hash);
+	sha256_Raw(hash, 32, hash);
 	uint8_t pby;
 	int result = hdnode_sign_digest(node, hash, signature + 1, &pby, NULL);
 	if (result == 0) {
@@ -155,8 +152,17 @@ int cryptoMessageVerify(const CoinInfo *coin, const uint8_t *message, size_t mes
 		return 1;
 	}
 
-	uint8_t hash[HASHER_DIGEST_LENGTH];
-	cryptoMessageHash(coin, message, message_len, hash);
+	// calculate hash
+	SHA256_CTX ctx;
+	sha256_Init(&ctx);
+	sha256_Update(&ctx, (const uint8_t *)coin->signed_message_header, strlen(coin->signed_message_header));
+	uint8_t varint[5];
+	uint32_t l = ser_length(message_len, varint);
+	sha256_Update(&ctx, varint, l);
+	sha256_Update(&ctx, message, message_len);
+	uint8_t hash[32];
+	sha256_Final(&ctx, hash);
+	sha256_Raw(hash, 32, hash);
 
 	uint8_t recid = (signature[0] - 27) % 4;
 	bool compressed = signature[0] >= 31;
@@ -177,8 +183,8 @@ int cryptoMessageVerify(const CoinInfo *coin, const uint8_t *message, size_t mes
 
 	// p2pkh
 	if (signature[0] >= 27 && signature[0] <= 34) {
-		size_t len = base58_decode_check(address, coin->curve->hasher_type, addr_raw, MAX_ADDR_RAW_SIZE);
-		ecdsa_get_address_raw(pubkey, coin->address_type, coin->curve->hasher_type, recovered_raw);
+		size_t len = base58_decode_check(address, addr_raw, MAX_ADDR_RAW_SIZE);
+		ecdsa_get_address_raw(pubkey, coin->address_type, recovered_raw);
 		if (memcmp(recovered_raw, addr_raw, len) != 0
 			|| len != address_prefix_bytes_len(coin->address_type) + 20) {
 			return 2;
@@ -186,8 +192,8 @@ int cryptoMessageVerify(const CoinInfo *coin, const uint8_t *message, size_t mes
 	} else
 	// segwit-in-p2sh
 	if (signature[0] >= 35 && signature[0] <= 38) {
-		size_t len = base58_decode_check(address, coin->curve->hasher_type, addr_raw, MAX_ADDR_RAW_SIZE);
-		ecdsa_get_address_segwit_p2sh_raw(pubkey, coin->address_type_p2sh, coin->curve->hasher_type, recovered_raw);
+		size_t len = base58_decode_check(address, addr_raw, MAX_ADDR_RAW_SIZE);
+		ecdsa_get_address_segwit_p2sh_raw(pubkey, coin->address_type_p2sh, recovered_raw);
 		if (memcmp(recovered_raw, addr_raw, len) != 0
 			|| len != address_prefix_bytes_len(coin->address_type_p2sh) + 20) {
 			return 2;
@@ -201,7 +207,7 @@ int cryptoMessageVerify(const CoinInfo *coin, const uint8_t *message, size_t mes
 			|| !segwit_addr_decode(&witver, recovered_raw, &len, coin->bech32_prefix, address)) {
 			return 4;
 		}
-		ecdsa_get_pubkeyhash(pubkey, coin->curve->hasher_type, addr_raw);
+		ecdsa_get_pubkeyhash(pubkey, addr_raw);
 		if (memcmp(recovered_raw, addr_raw, len) != 0
 			|| witver != 0 || len != 20) {
 			return 2;

@@ -33,7 +33,6 @@
 #include "gettext.h"
 #include "types.pb.h"
 #include "recovery-table.h"
-#include "memzero.h"
 
 /* number of words expected in the new seed */
 static uint32_t word_count;
@@ -131,7 +130,7 @@ static void recovery_request(void) {
  * Check mnemonic and send success/failure.
  */
 static void recovery_done(void) {
-	char new_mnemonic[241] = {0}; // TODO: remove constant
+	char new_mnemonic[sizeof(storage.mnemonic)] = {0};
 
 	strlcpy(new_mnemonic, words[0], sizeof(new_mnemonic));
 	for (uint32_t i = 1; i < word_count; i++) {
@@ -142,18 +141,20 @@ static void recovery_done(void) {
 		// New mnemonic is valid.
 		if (!dry_run) {
 			// Update mnemonic on storage.
-			storage_setMnemonic(new_mnemonic);
-			memzero(new_mnemonic, sizeof(new_mnemonic));
+			storage.has_mnemonic = true;
+			strlcpy(storage.mnemonic, new_mnemonic, sizeof(new_mnemonic));
+			memset(new_mnemonic, 0, sizeof(new_mnemonic));
 			if (!enforce_wordlist) {
 				// not enforcing => mark storage as imported
-				storage_setImported(true);
+				storage.has_imported = true;
+				storage.imported = true;
 			}
-			storage_update();
+			storage_commit();
 			fsm_sendSuccess(_("Device recovered"));
 		} else {
 			// Inform the user about new mnemonic correctness (as well as whether it is the same as the current one).
 			bool match = (storage_isInitialized() && storage_containsMnemonic(new_mnemonic));
-			memzero(new_mnemonic, sizeof(new_mnemonic));
+			memset(new_mnemonic, 0, sizeof(new_mnemonic));
 			if (match) {
 				layoutDialog(&bmp_icon_ok, NULL, _("Confirm"), NULL,
 					_("The seed is valid"),
@@ -173,9 +174,9 @@ static void recovery_done(void) {
 		}
 	} else {
 		// New mnemonic is invalid.
-		memzero(new_mnemonic, sizeof(new_mnemonic));
+		memset(new_mnemonic, 0, sizeof(new_mnemonic));
 		if (!dry_run) {
-			session_clear(true);
+			storage_reset();
 		} else {
 			layoutDialog(&bmp_icon_error, NULL, _("Confirm"), NULL,
 				_("The seed is"), _("INVALID!"), NULL, NULL, NULL, NULL);
@@ -260,7 +261,7 @@ static void display_choices(bool twoColumn, char choices[9][12], int num)
 			int x = twoColumn ? 64 * col + 32 : 42 * col + 22;
 			int choice = word_matrix[nColumns*row + col];
 			const char *text = choice < num ? choices[choice] : "-";
-			oledDrawString(x - oledStringWidth(text, FONT_STANDARD)/2, y, text, FONT_STANDARD);
+			oledDrawString(x - oledStringWidth(text)/2, y, text);
 			if (twoColumn) {
 				oledInvert(x - 32 + 1, y - 1, x - 32 + 63 - 1, y + 8);
 			} else {
@@ -415,16 +416,16 @@ void recovery_init(uint32_t _word_count, bool passphrase_protection, bool pin_pr
 
 	if (!dry_run) {
 		if (pin_protection && !protectChangePin()) {
-			fsm_sendFailure(FailureType_Failure_PinMismatch, NULL);
+			fsm_sendFailure(FailureType_Failure_ActionCancelled, NULL);
 			layoutHome();
 			return;
 		}
 
-		storage_setPassphraseProtection(passphrase_protection);
+		storage.has_passphrase_protection = true;
+		storage.passphrase_protection = passphrase_protection;
 		storage_setLanguage(language);
 		storage_setLabel(label);
 		storage_setU2FCounter(u2f_counter);
-		storage_update();
 	}
 
 	if ((type & RecoveryDeviceType_RecoveryDeviceType_Matrix) != 0) {
@@ -450,7 +451,7 @@ static void recovery_scrambledword(const char *word)
 	if (word_pos == 0) { // fake word
 		if (strcmp(word, fake_word) != 0) {
 			if (!dry_run) {
-				session_clear(true);
+				storage_reset();
 			}
 			fsm_sendFailure(FailureType_Failure_ProcessError, _("Wrong word retyped"));
 			layoutHome();
@@ -469,7 +470,7 @@ static void recovery_scrambledword(const char *word)
 			}
 			if (!found) {
 				if (!dry_run) {
-					session_clear(true);
+					storage_reset();
 				}
 				fsm_sendFailure(FailureType_Failure_DataError, _("Word not found in a wordlist"));
 				layoutHome();

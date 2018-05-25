@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 from __future__ import print_function
 import json, sys
 
@@ -29,8 +29,6 @@ def get_fields(coin):
         '%d' % coin['forkid'] if coin['forkid'] else '0',
         '"%s"' % coin['bech32_prefix'] if coin.get('bech32_prefix') is not None else 'NULL',
         '0x%08x' % (0x80000000 + coin['bip44']),
-        '%s_NAME' % 'secp256k1'.upper(),
-        '&%s_info' % 'secp256k1',
     ]
 
 

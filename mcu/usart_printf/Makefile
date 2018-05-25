@@ -1,5 +1,5 @@
 
-# APPVER = 1.0.0
+APPVER = 2.0.0
 
 NAME = usart_printf
 

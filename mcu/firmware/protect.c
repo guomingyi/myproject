@@ -29,7 +29,6 @@
 #include "util.h"
 #include "debug.h"
 #include "gettext.h"
-#include "memzero.h"
 
 #define MAX_WRONG_PINS 15
 
@@ -156,7 +155,7 @@ static void protectCheckMaxTry(uint32_t wait) {
 
 bool protectPin(bool use_cached)
 {
-	if (!storage_hasPin() || (use_cached && session_isPinCached())) {
+	if (!storage.has_pin || storage.pin[0] == 0 || (use_cached && session_isPinCached())) {
 		return true;
 	}
 	uint32_t *fails = storage_getPinFailsPtr();
@@ -213,33 +212,29 @@ bool protectPin(bool use_cached)
 
 bool protectChangePin(void)
 {
-	static CONFIDENTIAL char pin_compare[17];
-
-	const char *pin = requestPin(PinMatrixRequestType_PinMatrixRequestType_NewFirst, _("Please enter new PIN:"));
-
+	const char *pin;
+	char pin1[17], pin2[17];
+	pin = requestPin(PinMatrixRequestType_PinMatrixRequestType_NewFirst, _("Please enter new PIN:"));
 	if (!pin) {
 		return false;
 	}
-
-	strlcpy(pin_compare, pin, sizeof(pin_compare));
-
+	strlcpy(pin1, pin, sizeof(pin1));
 	pin = requestPin(PinMatrixRequestType_PinMatrixRequestType_NewSecond, _("Please re-enter new PIN:"));
-
-	const bool result = pin && (strncmp(pin_compare, pin, sizeof(pin_compare)) == 0);
-
-	if (result) {
-		storage_setPin(pin_compare);
-		storage_update();
+	if (!pin) {
+		return false;
 	}
-
-	memzero(pin_compare, sizeof(pin_compare));
-
-	return result;
+	strlcpy(pin2, pin, sizeof(pin2));
+	if (strcmp(pin1, pin2) == 0) {
+		storage_setPin(pin1);
+		return true;
+	} else {
+		return false;
+	}
 }
 
 bool protectPassphrase(void)
 {
-	if (!storage_hasPassphraseProtection() || session_isPassphraseCached()) {
+	if (!storage.has_passphrase_protection || !storage.passphrase_protection || session_isPassphraseCached()) {
 		return true;
 	}
 
@@ -253,11 +248,10 @@ bool protectPassphrase(void)
 	bool result;
 	for (;;) {
 		usbPoll();
-		// TODO: correctly process PassphraseAck with state field set (mismatch => Failure)
 		if (msg_tiny_id == MessageType_MessageType_PassphraseAck) {
 			msg_tiny_id = 0xFFFF;
 			PassphraseAck *ppa = (PassphraseAck *)msg_tiny;
-			session_cachePassphrase(ppa->has_passphrase ? ppa->passphrase : "");
+			session_cachePassphrase(ppa->passphrase);
 			result = true;
 			break;
 		}

@@ -53,7 +53,7 @@ static TxRequest resp;
 static TxInputType input;
 static TxOutputBinType bin_output;
 static TxStruct to, tp, ti;
-static Hasher hashers[3];
+static SHA256_CTX hashers[3];
 static uint8_t CONFIDENTIAL privkey[32];
 static uint8_t pubkey[33], sig[64];
 static uint8_t hash_prevouts[32], hash_sequence[32],hash_outputs[32];
@@ -323,11 +323,13 @@ void phase1_request_next_input(void)
 		send_req_1_input();
 	} else {
 		//  compute segwit hashPrevouts & hashSequence
-		hasher_Double(&hashers[0], hash_prevouts);
-		hasher_Double(&hashers[1], hash_sequence);
-		hasher_Final(&hashers[2], hash_check);
+		sha256_Final(&hashers[0], hash_prevouts);
+		sha256_Raw(hash_prevouts, 32, hash_prevouts);
+		sha256_Final(&hashers[1], hash_sequence);
+		sha256_Raw(hash_sequence, 32, hash_sequence);
+		sha256_Final(&hashers[2], hash_check);
 		// init hashOutputs
-		hasher_Reset(&hashers[0]);
+		sha256_Init(&hashers[0]);
 		idx1 = 0;
 		send_req_3_output();
 	}
@@ -389,7 +391,7 @@ bool check_change_bip32_path(const TxOutputType *toutput)
 			&& count == in_address_n_count
 			&& 0 == memcmp(in_address_n, toutput->address_n,
 						   (count - BIP32_WALLET_DEPTH) * sizeof(uint32_t))
-			&& toutput->address_n[count - 2] <= BIP32_CHANGE_CHAIN
+			&& toutput->address_n[count - 2] == BIP32_CHANGE_CHAIN
 			&& toutput->address_n[count - 1] <= BIP32_MAX_LAST_ELEMENT);
 }
 
@@ -424,7 +426,7 @@ bool compile_input_script_sig(TxInputType *tinput)
 		tinput->script_sig.size = compile_script_multisig(&(tinput->multisig), tinput->script_sig.bytes);
 	} else { // SPENDADDRESS
 		uint8_t hash[20];
-		ecdsa_get_pubkeyhash(node.public_key, coin->curve->hasher_type, hash);
+		ecdsa_get_pubkeyhash(node.public_key, hash);
 		tinput->script_sig.size = compile_script_sig(coin->address_type, hash, tinput->script_sig.bytes);
 	}
 	return tinput->script_sig.size > 0;
@@ -463,11 +465,11 @@ void signing_init(uint32_t _inputs_count, uint32_t _outputs_count, const CoinInf
 	multisig_fp_mismatch = false;
 	next_nonsegwit_input = 0xffffffff;
 
-	tx_init(&to, inputs_count, outputs_count, version, lock_time, 0, coin->curve->hasher_type);
+	tx_init(&to, inputs_count, outputs_count, version, lock_time, 0);
 	// segwit hashes for hashPrevouts and hashSequence
-	hasher_Init(&hashers[0], coin->curve->hasher_type);
-	hasher_Init(&hashers[1], coin->curve->hasher_type);
-	hasher_Init(&hashers[2], coin->curve->hasher_type);
+	sha256_Init(&hashers[0]);
+	sha256_Init(&hashers[1]);
+	sha256_Init(&hashers[2]);
 
 	layoutProgressSwipe(_("Signing transaction"), 0);
 
@@ -505,7 +507,7 @@ static bool signing_check_input(TxInputType *txinput) {
 	tx_sequence_hash(&hashers[1], txinput);
 	// hash prevout and script type to check it later (relevant for fee computation)
 	tx_prevout_hash(&hashers[2], txinput);
-	hasher_Update(&hashers[2], (const uint8_t *) &txinput->script_type, sizeof(&txinput->script_type));
+	sha256_Update(&hashers[2], &txinput->script_type, sizeof(&txinput->script_type));
 	return true;
 }
 
@@ -550,9 +552,6 @@ static bool signing_check_output(TxOutputType *txoutput) {
 		}
 		/*
 		 * only allow segwit change if amount is smaller than what segwit inputs paid.
-		 * this was added during the times segwit was not yet fully activated
-		 * to make sure the user is not tricked to use witness change output
-		 * instead of regular one therefore creating ANYONECANSPEND output
 		 */
 		if ((txoutput->script_type == OutputScriptType_PAYTOWITNESS
 			 || txoutput->script_type == OutputScriptType_PAYTOP2SHWITNESS)
@@ -565,8 +564,9 @@ static bool signing_check_output(TxOutputType *txoutput) {
 		if (change_spend == 0) { // not set
 			change_spend = txoutput->amount;
 		} else {
-			/* We only skip confirmation for the first change output */
-			is_change = false;
+			fsm_sendFailure(FailureType_Failure_DataError, _("Only one change output allowed"));
+			signing_abort();
+			return false;
 		}
 	}
 
@@ -635,7 +635,8 @@ static void phase1_request_next_output(void) {
 		idx1++;
 		send_req_3_output();
 	} else {
-		hasher_Double(&hashers[0], hash_outputs);
+		sha256_Final(&hashers[0], hash_outputs);
+		sha256_Raw(hash_outputs, 32, hash_outputs);
 		if (!signing_check_fee()) {
 			return;
 		}
@@ -649,18 +650,19 @@ static void phase1_request_next_output(void) {
 
 static void signing_hash_bip143(const TxInputType *txinput, uint8_t *hash) {
 	uint32_t hash_type = signing_hash_type();
-	hasher_Reset(&hashers[0]);
-	hasher_Update(&hashers[0], (const uint8_t *)&version, 4);
-	hasher_Update(&hashers[0], hash_prevouts, 32);
-	hasher_Update(&hashers[0], hash_sequence, 32);
+	sha256_Init(&hashers[0]);
+	sha256_Update(&hashers[0], (const uint8_t *)&version, 4);
+	sha256_Update(&hashers[0], hash_prevouts, 32);
+	sha256_Update(&hashers[0], hash_sequence, 32);
 	tx_prevout_hash(&hashers[0], txinput);
 	tx_script_hash(&hashers[0], txinput->script_sig.size, txinput->script_sig.bytes);
-	hasher_Update(&hashers[0], (const uint8_t*) &txinput->amount, 8);
+	sha256_Update(&hashers[0], (const uint8_t*) &txinput->amount, 8);
 	tx_sequence_hash(&hashers[0], txinput);
-	hasher_Update(&hashers[0], hash_outputs, 32);
-	hasher_Update(&hashers[0], (const uint8_t*) &lock_time, 4);
-	hasher_Update(&hashers[0], (const uint8_t*) &hash_type, 4);
-	hasher_Double(&hashers[0], hash);
+	sha256_Update(&hashers[0], hash_outputs, 32);
+	sha256_Update(&hashers[0], (const uint8_t*) &lock_time, 4);
+	sha256_Update(&hashers[0], (const uint8_t*) &hash_type, 4);
+	sha256_Final(&hashers[0], hash);
+	sha256_Raw(hash, 32, hash);
 }
 
 static bool signing_sign_hash(TxInputType *txinput, const uint8_t* private_key, const uint8_t *public_key, const uint8_t *hash) {
@@ -700,7 +702,8 @@ static bool signing_sign_hash(TxInputType *txinput, const uint8_t* private_key, 
 
 static bool signing_sign_input(void) {
 	uint8_t hash[32];
-	hasher_Double(&hashers[0], hash);
+	sha256_Final(&hashers[0], hash);
+	sha256_Raw(hash, 32, hash);
 	if (memcmp(hash, hash_outputs, 32) != 0) {
 		fsm_sendFailure(FailureType_Failure_DataError, _("Transaction has changed during signing"));
 		signing_abort();
@@ -708,7 +711,7 @@ static bool signing_sign_input(void) {
 	}
 
 	uint32_t hash_type = signing_hash_type();
-	hasher_Update(&ti.hasher, (const uint8_t *)&hash_type, 4);
+	sha256_Update(&ti.ctx, (const uint8_t *)&hash_type, 4);
 	tx_hash_final(&ti, hash, false);
 	resp.has_serialized = true;
 	if (!signing_sign_hash(&input, privkey, pubkey, hash))
@@ -882,7 +885,7 @@ void signing_txack(TransactionType *tx)
 			}
 			return;
 		case STAGE_REQUEST_2_PREV_META:
-			tx_init(&tp, tx->inputs_cnt, tx->outputs_cnt, tx->version, tx->lock_time, tx->extra_data_len, coin->curve->hasher_type);
+			tx_init(&tp, tx->inputs_cnt, tx->outputs_cnt, tx->version, tx->lock_time, tx->extra_data_len);
 			progress_meta_step = progress_step / (tp.inputs_len + tp.outputs_len);
 			idx2 = 0;
 			if (tp.inputs_len > 0) {
@@ -956,12 +959,12 @@ void signing_txack(TransactionType *tx)
 		case STAGE_REQUEST_4_INPUT:
 			progress = 500 + ((signatures * progress_step + idx2 * progress_meta_step) >> PROGRESS_PRECISION);
 			if (idx2 == 0) {
-				tx_init(&ti, inputs_count, outputs_count, version, lock_time, 0, coin->curve->hasher_type);
-				hasher_Reset(&hashers[0]);
+				tx_init(&ti, inputs_count, outputs_count, version, lock_time, 0);
+				sha256_Init(&hashers[0]);
 			}
 			// check prevouts and script type
 			tx_prevout_hash(&hashers[0], tx->inputs);
-			hasher_Update(&hashers[0], (const uint8_t *) &tx->inputs[0].script_type, sizeof(&tx->inputs[0].script_type));
+			sha256_Update(&hashers[0], &tx->inputs[0].script_type, sizeof(&tx->inputs[0].script_type));
 			if (idx2 == idx1) {
 				if (!compile_input_script_sig(&tx->inputs[0])) {
 					fsm_sendFailure(FailureType_Failure_ProcessError, _("Failed to compile input"));
@@ -989,13 +992,13 @@ void signing_txack(TransactionType *tx)
 				send_req_4_input();
 			} else {
 				uint8_t hash[32];
-				hasher_Final(&hashers[0], hash);
+				sha256_Final(&hashers[0], hash);
 				if (memcmp(hash, hash_check, 32) != 0) {
 					fsm_sendFailure(FailureType_Failure_DataError, _("Transaction has changed during signing"));
 					signing_abort();
 					return;
 				}
-				hasher_Reset(&hashers[0]);
+				sha256_Init(&hashers[0]);
 				idx2 = 0;
 				send_req_4_output();
 			}
@@ -1090,7 +1093,7 @@ void signing_txack(TransactionType *tx)
 				tx->inputs[0].script_sig.bytes[1] = 0x00; // witness 0 script
 				tx->inputs[0].script_sig.bytes[2] = 0x20; // push 32 bytes (digest)
 				// compute digest of multisig script
-				if (!compile_script_multisig_hash(&tx->inputs[0].multisig, coin->curve->hasher_type, tx->inputs[0].script_sig.bytes + 3)) {
+				if (!compile_script_multisig_hash(&tx->inputs[0].multisig, tx->inputs[0].script_sig.bytes + 3)) {
 					fsm_sendFailure(FailureType_Failure_ProcessError, _("Failed to compile input"));
 					signing_abort();
 					return;

@@ -35,15 +35,11 @@
 #include "sha2.h"
 #include "ecdsa.h"
 #include "secp256k1.h"
-#include "memzero.h"
-
-#define FIRMWARE_MAGIC "TRZR"
 
 #define ENDPOINT_ADDRESS_IN         (0x81)
 #define ENDPOINT_ADDRESS_OUT        (0x01)
 
 static bool brand_new_firmware;
-static bool old_was_unsigned;
 
 static const struct usb_device_descriptor dev_descr = {
 	.bLength = USB_DT_DEVICE_SIZE,
@@ -231,7 +227,6 @@ static void send_msg_features(usbd_device *dev)
 	//           - patch_version = VERSION_PATCH
 	//           - bootloader_mode = True
 	//           - firmware_present = True/False
-	//           - model = "1"
 	if (brand_new_firmware) {
 		while ( usbd_ep_write_packet(dev, ENDPOINT_ADDRESS_IN,
 			// header
@@ -247,9 +242,8 @@ static void send_msg_features(usbd_device *dev)
 			"\x20" VERSION_PATCH_CHAR
 			"\x28" "\x01"
 			"\x90\x01" "\x00"
-			"\xaa" "\x01" "1"
 			// padding
-			"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+			"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
 			, 64) != 64) {}
 	} else {
 		while ( usbd_ep_write_packet(dev, ENDPOINT_ADDRESS_IN,
@@ -266,9 +260,8 @@ static void send_msg_features(usbd_device *dev)
 			"\x20" VERSION_PATCH_CHAR
 			"\x28" "\x01"
 			"\x90\x01" "\x01"
-			"\xaa" "\x01" "1"
 			// padding
-			"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+			"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
 			, 64) != 64) {}
 	}
 }
@@ -343,44 +336,8 @@ static void hid_rx_callback(usbd_device *dev, uint8_t ep)
 			flash_state = STATE_OPEN;
 			return;
 		}
-		if (msg_id == 0x0037) {		// GetFeatures message (id 55)
-			send_msg_features(dev);
-			return;
-		}
 		if (msg_id == 0x0001) {		// Ping message (id 1)
 			send_msg_success(dev);
-			return;
-		}
-		if (msg_id == 0x0005) {		// WipeDevice message (id 5)
-			layoutDialog(&bmp_icon_question, "Cancel", "Confirm", NULL, "Do you really want to", "wipe the device?", NULL, "All data will be lost.", NULL, NULL);
-			do {
-				delay(100000);
-				buttonUpdate();
-			} while (!button.YesUp && !button.NoUp);
-			if (button.YesUp) {
-				flash_wait_for_last_operation();
-				flash_clear_status_flags();
-				flash_unlock();
-				// erase metadata area
-				for (int i = FLASH_META_SECTOR_FIRST; i <= FLASH_META_SECTOR_LAST; i++) {
-					layoutProgress("ERASING ... Please wait", 1000 * (i - FLASH_META_SECTOR_FIRST) / (FLASH_CODE_SECTOR_LAST - FLASH_META_SECTOR_FIRST));
-					flash_erase_sector(i, FLASH_CR_PROGRAM_X32);
-				}
-				// erase code area
-				for (int i = FLASH_CODE_SECTOR_FIRST; i <= FLASH_CODE_SECTOR_LAST; i++) {
-					layoutProgress("ERASING ... Please wait", 1000 * (i - FLASH_META_SECTOR_FIRST) / (FLASH_CODE_SECTOR_LAST - FLASH_META_SECTOR_FIRST));
-					flash_erase_sector(i, FLASH_CR_PROGRAM_X32);
-				}
-				flash_wait_for_last_operation();
-				flash_lock();
-				flash_state = STATE_END;
-				layoutDialog(&bmp_icon_ok, NULL, NULL, NULL, "Device", "successfully wiped.", NULL, "You may now", "unplug your TREZOR.", NULL);
-				send_msg_success(dev);
-			} else {
-				flash_state = STATE_END;
-				layoutDialog(&bmp_icon_warning, NULL, NULL, NULL, "Device wipe", "aborted.", NULL, "You may now", "unplug your TREZOR.", NULL);
-				send_msg_failure(dev);
-			}
 			return;
 		}
 		if (msg_id == 0x0020) {		// SelfTest message (id 32)
@@ -439,7 +396,7 @@ static void hid_rx_callback(usbd_device *dev, uint8_t ep)
 			// restore metadata from backup
 			erase_metadata_sectors();
 			restore_metadata(meta_backup);
-			memzero(meta_backup, sizeof(meta_backup));
+			memset(meta_backup, 0, sizeof(meta_backup));
 
 			// compare against known hash computed via the following Python3 script:
 			// hashlib.sha256(binascii.unhexlify('0F5A693C' * 8192)).hexdigest()
@@ -475,16 +432,8 @@ static void hid_rx_callback(usbd_device *dev, uint8_t ep)
 				} while (!button.YesUp && !button.NoUp);
 			}
 			if (brand_new_firmware || button.YesUp) {
-				// check whether current firmware is signed
-				if (!brand_new_firmware && SIG_OK == signatures_ok(NULL)) {
-					old_was_unsigned = false;
-					// backup metadata
-					backup_metadata(meta_backup);
-				} else {
-					old_was_unsigned = true;
-				}
-				flash_wait_for_last_operation();
-				flash_clear_status_flags();
+				// backup metadata
+				backup_metadata(meta_backup);
 				flash_unlock();
 				// erase metadata area
 				for (int i = FLASH_META_SECTOR_FIRST; i <= FLASH_META_SECTOR_LAST; i++) {
@@ -497,22 +446,7 @@ static void hid_rx_callback(usbd_device *dev, uint8_t ep)
 					flash_erase_sector(i, FLASH_CR_PROGRAM_X32);
 				}
 				layoutProgress("INSTALLING ... Please wait", 0);
-				flash_wait_for_last_operation();
 				flash_lock();
-
-				// check that metadata was succesfully erased
-				// flash status register should show now error and
-				// the config block should contain only \xff.
-				uint8_t hash[32];
-				sha256_Raw((unsigned char *)FLASH_META_START, FLASH_META_LEN, hash);
-				if ((FLASH_SR & (FLASH_SR_PGAERR | FLASH_SR_PGPERR | FLASH_SR_PGSERR | FLASH_SR_WRPERR)) != 0
-					|| memcmp(hash, "\x2d\x86\x4c\x0b\x78\x9a\x43\x21\x4e\xee\x85\x24\xd3\x18\x20\x75\x12\x5e\x5c\xa2\xcd\x52\x7f\x35\x82\xec\x87\xff\xd9\x40\x76\xbc", 32) != 0) {
-					send_msg_failure(dev);
-					flash_state = STATE_END;
-					layoutDialog(&bmp_icon_error, NULL, NULL, NULL, "Error installing ", "firmware.", NULL, "Unplug your TREZOR", "and try again.", NULL);
-					return;
-				}
-
 				send_msg_success(dev);
 				flash_state = STATE_FLASHSTART;
 				return;
@@ -542,16 +476,8 @@ static void hid_rx_callback(usbd_device *dev, uint8_t ep)
 				layoutDialog(&bmp_icon_error, NULL, NULL, NULL, "Firmware is too big.", NULL, "Get official firmware", "from trezor.io/start", NULL, NULL);
 				return;
 			}
-			// check firmware magic
-			if (memcmp(p, FIRMWARE_MAGIC, 4) != 0) {
-				send_msg_failure(dev);
-				flash_state = STATE_END;
-				layoutDialog(&bmp_icon_error, NULL, NULL, NULL, "Wrong firmware header.", NULL, "Get official firmware", "from trezor.io/start", NULL, NULL);
-				return;
-			}
 			flash_state = STATE_FLASHING;
-			p += 4;         // Don't flash firmware header yet.
-			flash_pos = 4;
+			flash_pos = 0;
 			wi = 0;
 			flash_unlock();
 			while (p < buf + 64) {
@@ -631,27 +557,31 @@ static void hid_rx_callback(usbd_device *dev, uint8_t ep)
 
 		layoutProgress("INSTALLING ... Please wait", 1000);
 		uint8_t flags = *((uint8_t *)FLASH_META_FLAGS);
-		// wipe storage if:
-		// 0) there was no firmware
-		// 1) old firmware was unsigned
-		// 2) firmware restore flag isn't set
-		// 3) signatures are not ok
-		if (brand_new_firmware || old_was_unsigned || (flags & 0x01) == 0 || SIG_OK != signatures_ok(NULL)) {
-			memzero(meta_backup, sizeof(meta_backup));
-		}
-		// copy new firmware header
-		memcpy(meta_backup, (void *)FLASH_META_START, FLASH_META_DESC_LEN);
-		// write "TRZR" in header only when hash was confirmed
-		if (hash_check_ok) {
-			memcpy(meta_backup, FIRMWARE_MAGIC, 4);
+		// check if to restore old storage area but only if signatures are ok
+		if ((flags & 0x01) && signatures_ok(NULL)) {
+			// copy new stuff
+			memcpy(meta_backup, (void *)FLASH_META_START, FLASH_META_DESC_LEN);
+			// replace "TRZR" in header with 0000 when hash not confirmed
+			if (!hash_check_ok) {
+				meta_backup[0] = 0;
+				meta_backup[1] = 0;
+				meta_backup[2] = 0;
+				meta_backup[3] = 0;
+			}
+			// erase storage
+			erase_metadata_sectors();
+			// restore metadata from backup
+			restore_metadata(meta_backup);
+			memset(meta_backup, 0, sizeof(meta_backup));
 		} else {
-			memzero(meta_backup, 4);
+			// replace "TRZR" in header with 0000 when hash not confirmed
+			if (!hash_check_ok) {
+				// no need to erase, because we are just erasing bits
+				flash_unlock();
+				flash_program_word(FLASH_META_START, 0x00000000);
+				flash_lock();
+			}
 		}
-
-		// no need to erase, because we are not changing any already flashed byte.
-		restore_metadata(meta_backup);
-		memzero(meta_backup, sizeof(meta_backup));
-
 		flash_state = STATE_END;
 		if (hash_check_ok) {
 			layoutDialog(&bmp_icon_ok, NULL, NULL, NULL, "New firmware", "successfully installed.", NULL, "You may now", "unplug your TREZOR.", NULL);

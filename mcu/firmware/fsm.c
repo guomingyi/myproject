@@ -42,7 +42,7 @@
 #include "usb.h"
 #include "util.h"
 #include "signing.h"
-#include "aes/aes.h"
+#include "aes.h"
 #include "hmac.h"
 #include "crypto.h"
 #include "base58.h"
@@ -106,11 +106,7 @@ void fsm_sendSuccess(const char *text)
 	msg_write(MessageType_MessageType_Success, resp);
 }
 
-#if DEBUG_LINK
-void fsm_sendFailureDebug(FailureType code, const char *text, const char *source)
-#else
 void fsm_sendFailure(FailureType code, const char *text)
-#endif
 {
 	if (protectAbortedByInitialize) {
 		fsm_msgInitialize((Initialize *)0);
@@ -155,26 +151,15 @@ void fsm_sendFailure(FailureType code, const char *text)
 			case FailureType_Failure_NotInitialized:
 				text = _("Device not initialized");
 				break;
-			case FailureType_Failure_PinMismatch:
-				text = _("PIN mismatch");
-				break;
 			case FailureType_Failure_FirmwareError:
 				text = _("Firmware error");
 				break;
 		}
 	}
-#if DEBUG_LINK
-	resp->has_message = true;
-	strlcpy(resp->message, source, sizeof(resp->message));
-	if (text) {
-		strlcat(resp->message, text, sizeof(resp->message));
-	}
-#else
 	if (text) {
 		resp->has_message = true;
 		strlcpy(resp->message, text, sizeof(resp->message));
 	}
-#endif
 	msg_write(MessageType_MessageType_Failure, resp);
 }
 
@@ -194,12 +179,9 @@ static const CoinInfo *fsm_getCoin(bool has_name, const char *name)
 	return coin;
 }
 
-static HDNode *fsm_getDerivedNode(const char *curve, const uint32_t *address_n, size_t address_n_count, uint32_t *fingerprint)
+static HDNode *fsm_getDerivedNode(const char *curve, const uint32_t *address_n, size_t address_n_count)
 {
 	static CONFIDENTIAL HDNode node;
-	if (fingerprint) {
-		*fingerprint = 0;
-	}
 	if (!storage_getRootNode(&node, curve, true)) {
 		fsm_sendFailure(FailureType_Failure_NotInitialized, _("Device not initialized or passphrase request cancelled or unsupported curve"));
 		layoutHome();
@@ -208,7 +190,7 @@ static HDNode *fsm_getDerivedNode(const char *curve, const uint32_t *address_n, 
 	if (!address_n || address_n_count == 0) {
 		return &node;
 	}
-	if (hdnode_private_ckd_cached(&node, address_n, address_n_count, fingerprint) == 0) {
+	if (hdnode_private_ckd_cached(&node, address_n, address_n_count, NULL) == 0) {
 		fsm_sendFailure(FailureType_Failure_ProcessError, _("Failed to derive private key"));
 		layoutHome();
 		return 0;
@@ -216,39 +198,12 @@ static HDNode *fsm_getDerivedNode(const char *curve, const uint32_t *address_n, 
 	return &node;
 }
 
-static bool fsm_layoutAddress(const char *address, const char *desc, bool ignorecase, const uint32_t *address_n, size_t address_n_count)
-{
-	bool qrcode = false;
-	for (;;) {
-		layoutAddress(address, desc, qrcode, ignorecase, address_n, address_n_count);
-		if (protectButton(ButtonRequestType_ButtonRequest_Address, false)) {
-			return true;
-		}
-		if (protectAbortedByInitialize) {
-			fsm_sendFailure(FailureType_Failure_ActionCancelled, NULL);
-			layoutHome();
-			return false;
-		}
-		qrcode = !qrcode;
-	}
-}
-
 void fsm_msgInitialize(Initialize *msg)
 {
+	(void)msg;
 	recovery_abort();
 	signing_abort();
-	if (msg && msg->has_state && msg->state.size == 64) {
-		uint8_t i_state[64];
-		if (!session_getState(msg->state.bytes, i_state, NULL)) {
-			session_clear(false); // do not clear PIN
-		} else {
-			if (0 != memcmp(msg->state.bytes, i_state, 64)) {
-				session_clear(false); // do not clear PIN
-			}
-		}
-	} else {
-		session_clear(false); // do not clear PIN
-	}
+	session_clear(false); // do not clear PIN
 	layoutHome();
 	fsm_msgGetFeatures(0);
 }
@@ -262,24 +217,23 @@ void fsm_msgGetFeatures(GetFeatures *msg)
 	resp->has_minor_version = true;  resp->minor_version = VERSION_MINOR;
 	resp->has_patch_version = true;  resp->patch_version = VERSION_PATCH;
 	resp->has_device_id = true;      strlcpy(resp->device_id, storage_uuid_str, sizeof(resp->device_id));
-	resp->has_pin_protection = true; resp->pin_protection = storage_hasPin();
-	resp->has_passphrase_protection = true; resp->passphrase_protection = storage_hasPassphraseProtection();
+	resp->has_pin_protection = true; resp->pin_protection = storage.has_pin;
+	resp->has_passphrase_protection = true; resp->passphrase_protection = storage.has_passphrase_protection && storage.passphrase_protection;
 #ifdef SCM_REVISION
 	int len = sizeof(SCM_REVISION) - 1;
 	resp->has_revision = true; memcpy(resp->revision.bytes, SCM_REVISION, len); resp->revision.size = len;
 #endif
 	resp->has_bootloader_hash = true; resp->bootloader_hash.size = memory_bootloader_hash(resp->bootloader_hash.bytes);
-	if (storage_getLanguage()) {
+	if (storage.has_language) {
 		resp->has_language = true;
-		strlcpy(resp->language, storage_getLanguage(), sizeof(resp->language));
+		strlcpy(resp->language, storage.language, sizeof(resp->language));
 	}
-	if (storage_getLabel()) {
+	if (storage.has_label) {
 		resp->has_label = true;
-		strlcpy(resp->label, storage_getLabel(), sizeof(resp->label));
+		strlcpy(resp->label, storage.label, sizeof(resp->label));
 	}
 	
 	_Static_assert(pb_arraysize(Features, coins) >= COINS_COUNT, "Features.coins max_count not large enough");
-
 	resp->coins_count = COINS_COUNT;
 	for (int i = 0; i < COINS_COUNT; i++) {
 		if (coins[i].coin_name) {
@@ -308,13 +262,11 @@ void fsm_msgGetFeatures(GetFeatures *msg)
 		resp->coins[i].force_bip143 = coins[i].force_bip143;
 	}
 	resp->has_initialized = true; resp->initialized = storage_isInitialized();
-	resp->has_imported = true; resp->imported = storage_isImported();
+	resp->has_imported = true; resp->imported = storage.has_imported && storage.imported;
 	resp->has_pin_cached = true; resp->pin_cached = session_isPinCached();
 	resp->has_passphrase_cached = true; resp->passphrase_cached = session_isPassphraseCached();
 	resp->has_needs_backup = true; resp->needs_backup = storage_needsBackup();
 	resp->has_flags = true; resp->flags = storage_getFlags();
-	resp->has_model = true; strlcpy(resp->model, "1", sizeof(resp->model));
-
 	msg_write(MessageType_MessageType_Features, resp);
 }
 
@@ -376,14 +328,13 @@ void fsm_msgChangePin(ChangePin *msg)
 	CHECK_PIN_UNCACHED
 
 	if (removal) {
-		storage_setPin("");
-		storage_update();
+		storage_setPin(0);
 		fsm_sendSuccess(_("PIN removed"));
 	} else {
 		if (protectChangePin()) {
 			fsm_sendSuccess(_("PIN changed"));
 		} else {
-			fsm_sendFailure(FailureType_Failure_PinMismatch, NULL);
+			fsm_sendFailure(FailureType_Failure_ActionCancelled, NULL);
 		}
 	}
 	layoutHome();
@@ -437,13 +388,24 @@ void fsm_msgGetPublicKey(GetPublicKey *msg)
 	const CoinInfo *coin = fsm_getCoin(msg->has_coin_name, msg->coin_name);
 	if (!coin) return;
 
-	const char *curve = coin->curve_name;
+	const char *curve = SECP256K1_NAME;
 	if (msg->has_ecdsa_curve_name) {
 		curve = msg->ecdsa_curve_name;
 	}
 	uint32_t fingerprint;
-	HDNode *node = node = fsm_getDerivedNode(curve, msg->address_n, msg->address_n_count, &fingerprint);
-	if (!node) return;
+	HDNode *node;
+	if (msg->address_n_count == 0) {
+		/* get master node */
+		fingerprint = 0;
+		node = fsm_getDerivedNode(curve, msg->address_n, 0);
+	} else {
+		/* get parent node */
+		node = fsm_getDerivedNode(curve, msg->address_n, msg->address_n_count - 1);
+		if (!node) return;
+		fingerprint = hdnode_fingerprint(node);
+		/* get child */
+		hdnode_private_ckd(node, msg->address_n[msg->address_n_count - 1]);
+	}
 	hdnode_fill_public_key(node);
 
 	if (msg->has_show_display && msg->show_display) {
@@ -494,6 +456,7 @@ void fsm_msgLoadDevice(LoadDevice *msg)
 	}
 
 	storage_loadDevice(msg);
+	storage_commit();
 	fsm_sendSuccess(_("Device loaded"));
 	layoutHome();
 }
@@ -537,7 +500,7 @@ void fsm_msgSignTx(SignTx *msg)
 
 	const CoinInfo *coin = fsm_getCoin(msg->has_coin_name, msg->coin_name);
 	if (!coin) return;
-	const HDNode *node = fsm_getDerivedNode(coin->curve_name, NULL, 0, NULL);
+	const HDNode *node = fsm_getDerivedNode(SECP256K1_NAME, 0, 0);
 	if (!node) return;
 
 	signing_init(msg->inputs_count, msg->outputs_count, coin, node, msg->version, msg->lock_time);
@@ -565,7 +528,7 @@ void fsm_msgEthereumSignTx(EthereumSignTx *msg)
 
 	CHECK_PIN
 
-	const HDNode *node = fsm_getDerivedNode(SECP256K1_NAME, msg->address_n, msg->address_n_count, NULL);
+	const HDNode *node = fsm_getDerivedNode(SECP256K1_NAME, msg->address_n, msg->address_n_count);
 	if (!node) return;
 
 	ethereum_signing_init(msg, node);
@@ -586,7 +549,7 @@ void fsm_msgCipherKeyValue(CipherKeyValue *msg)
 
 	CHECK_PIN
 
-	const HDNode *node = fsm_getDerivedNode(SECP256K1_NAME, msg->address_n, msg->address_n_count, NULL);
+	const HDNode *node = fsm_getDerivedNode(SECP256K1_NAME, msg->address_n, msg->address_n_count);
 	if (!node) return;
 
 	bool encrypt = msg->has_encrypt && msg->encrypt;
@@ -683,7 +646,7 @@ void fsm_msgApplySettings(ApplySettings *msg)
 	if (msg->has_homescreen) {
 		storage_setHomescreen(msg->homescreen.bytes, msg->homescreen.size);
 	}
-	storage_update();
+	storage_commit();
 	fsm_sendSuccess(_("Settings applied"));
 	layoutHome();
 }
@@ -696,81 +659,6 @@ void fsm_msgApplyFlags(ApplyFlags *msg)
 	fsm_sendSuccess(_("Flags applied"));
 }
 
-static bool path_mismatched(const CoinInfo *coin, const GetAddress *msg)
-{
-	bool mismatch = false;
-
-	// m : no path
-	if (msg->address_n_count == 0) {
-		return false;
-	}
-
-	// m/44' : BIP44 Legacy
-	// m / purpose' / coin_type' / account' / change / address_index
-	if (msg->address_n[0] == (0x80000000 + 44)) {
-		mismatch |= (msg->script_type != InputScriptType_SPENDADDRESS);
-		mismatch |= (msg->address_n_count != 5);
-		mismatch |= (msg->address_n[1] != coin->coin_type);
-		mismatch |= (msg->address_n[2] & 0x80000000) == 0;
-		mismatch |= (msg->address_n[3] & 0x80000000) == 0x80000000;
-		mismatch |= (msg->address_n[4] & 0x80000000) == 0x80000000;
-		return mismatch;
-	}
-
-	// m/45' - BIP45 Copay Abandoned Multisig P2SH
-	// m / purpose' / cosigner_index / change / address_index
-	if (msg->address_n[0] == (0x80000000 + 45)) {
-		mismatch |= (msg->script_type != InputScriptType_SPENDMULTISIG);
-		mismatch |= (msg->address_n_count != 4);
-		mismatch |= (msg->address_n[1] & 0x80000000) == 0x80000000;
-		mismatch |= (msg->address_n[2] & 0x80000000) == 0x80000000;
-		mismatch |= (msg->address_n[3] & 0x80000000) == 0x80000000;
-		return mismatch;
-	}
-
-	// m/48' - BIP48 Copay Multisig P2SH
-	// m / purpose' / coin_type' / account' / change / address_index
-	if (msg->address_n[0] == (0x80000000 + 48)) {
-		mismatch |= (msg->script_type != InputScriptType_SPENDMULTISIG);
-		mismatch |= (msg->address_n_count != 5);
-		mismatch |= (msg->address_n[1] != coin->coin_type);
-		mismatch |= (msg->address_n[2] & 0x80000000) == 0;
-		mismatch |= (msg->address_n[3] & 0x80000000) == 0x80000000;
-		mismatch |= (msg->address_n[4] & 0x80000000) == 0x80000000;
-		return mismatch;
-	}
-
-	// m/49' : BIP49 SegWit
-	// m / purpose' / coin_type' / account' / change / address_index
-	if (msg->address_n[0] == (0x80000000 + 49)) {
-		mismatch |= (msg->script_type != InputScriptType_SPENDP2SHWITNESS);
-		mismatch |= !coin->has_segwit;
-		mismatch |= !coin->has_address_type_p2sh;
-		mismatch |= (msg->address_n_count != 5);
-		mismatch |= (msg->address_n[1] != coin->coin_type);
-		mismatch |= (msg->address_n[2] & 0x80000000) == 0;
-		mismatch |= (msg->address_n[3] & 0x80000000) == 0x80000000;
-		mismatch |= (msg->address_n[4] & 0x80000000) == 0x80000000;
-		return mismatch;
-	}
-
-	// m/84' : BIP84 Native SegWit
-	// m / purpose' / coin_type' / account' / change / address_index
-	if (msg->address_n[0] == (0x80000000 + 84)) {
-		mismatch |= (msg->script_type != InputScriptType_SPENDWITNESS);
-		mismatch |= !coin->has_segwit;
-		mismatch |= !coin->bech32_prefix;
-		mismatch |= (msg->address_n_count != 5);
-		mismatch |= (msg->address_n[1] != coin->coin_type);
-		mismatch |= (msg->address_n[2] & 0x80000000) == 0;
-		mismatch |= (msg->address_n[3] & 0x80000000) == 0x80000000;
-		mismatch |= (msg->address_n[4] & 0x80000000) == 0x80000000;
-		return mismatch;
-	}
-
-	return false;
-}
-
 void fsm_msgGetAddress(GetAddress *msg)
 {
 	RESP_INIT(Address);
@@ -781,7 +669,7 @@ void fsm_msgGetAddress(GetAddress *msg)
 
 	const CoinInfo *coin = fsm_getCoin(msg->has_coin_name, msg->coin_name);
 	if (!coin) return;
-	HDNode *node = fsm_getDerivedNode(coin->curve_name, msg->address_n, msg->address_n_count, NULL);
+	HDNode *node = fsm_getDerivedNode(SECP256K1_NAME, msg->address_n, msg->address_n_count);
 	if (!node) return;
 	hdnode_fill_public_key(node);
 
@@ -794,20 +682,36 @@ void fsm_msgGetAddress(GetAddress *msg)
 	}
 
 	if (msg->has_show_display && msg->show_display) {
-		char desc[20];
+		char desc[16];
 		if (msg->has_multisig) {
-			strlcpy(desc, "Multisig __ of __:", sizeof(desc));
+			strlcpy(desc, "Msig __ of __:", sizeof(desc));
 			const uint32_t m = msg->multisig.m;
 			const uint32_t n = msg->multisig.pubkeys_count;
-			desc[9] = (m < 10) ? ' ': ('0' + (m / 10));
-			desc[10] = '0' + (m % 10);
-			desc[15] = (n < 10) ? ' ': ('0' + (n / 10));
-			desc[16] = '0' + (n % 10);
+			desc[5] = (m < 10) ? ' ': ('0' + (m / 10));
+			desc[6] = '0' + (m % 10);
+			desc[11] = (n < 10) ? ' ': ('0' + (n / 10));
+			desc[12] = '0' + (n % 10);
 		} else {
 			strlcpy(desc, _("Address:"), sizeof(desc));
 		}
 
-		bool mismatch = path_mismatched(coin, msg);
+		bool mismatch = false;
+		if (msg->address_n_count == 5) {
+			if (msg->address_n[0] == (0x80000000 + 44)) {
+				mismatch |= msg->script_type != InputScriptType_SPENDADDRESS;
+				mismatch |= coin != coinByCoinType(msg->address_n[1]);
+			} else
+			if (msg->address_n[0] == (0x80000000 + 45)) {
+				mismatch |= msg->script_type != InputScriptType_SPENDMULTISIG;
+				mismatch |= coin != coinByCoinType(msg->address_n[1]);
+			} else
+			if (msg->address_n[0] == (0x80000000 + 49)) {
+				mismatch |= !coin->has_segwit;
+				mismatch |= !coin->has_address_type_p2sh;
+				mismatch |= msg->script_type != InputScriptType_SPENDP2SHWITNESS;
+				mismatch |= coin != coinByCoinType(msg->address_n[1]);
+			}
+		}
 
 		if (mismatch) {
 			layoutDialogSwipe(&bmp_icon_warning, _("Abort"), _("Continue"), NULL, _("Wrong address path"), _("for selected coin."), NULL, _("Continue at your"), _("own risk!"), NULL);
@@ -818,8 +722,13 @@ void fsm_msgGetAddress(GetAddress *msg)
 			}
 		}
 
-		if (!fsm_layoutAddress(address, desc, msg->script_type == InputScriptType_SPENDWITNESS, msg->address_n, msg->address_n_count)) {
-			return;
+		bool qrcode = false;
+		for (;;) {
+			layoutAddress(address, desc, qrcode, msg->script_type == InputScriptType_SPENDWITNESS, msg->address_n, msg->address_n_count);
+			if (protectButton(ButtonRequestType_ButtonRequest_Address, false)) {
+				break;
+			}
+			qrcode = !qrcode;
 		}
 	}
 
@@ -836,7 +745,7 @@ void fsm_msgEthereumGetAddress(EthereumGetAddress *msg)
 
 	CHECK_PIN
 
-	const HDNode *node = fsm_getDerivedNode(SECP256K1_NAME, msg->address_n, msg->address_n_count, NULL);
+	const HDNode *node = fsm_getDerivedNode(SECP256K1_NAME, msg->address_n, msg->address_n_count);
 	if (!node) return;
 
 	resp->address.size = 20;
@@ -851,8 +760,13 @@ void fsm_msgEthereumGetAddress(EthereumGetAddress *msg)
 		char address[43] = { '0', 'x' };
 		ethereum_address_checksum(resp->address.bytes, address + 2);
 
-		if (!fsm_layoutAddress(address, desc, false, msg->address_n, msg->address_n_count)) {
-			return;
+		bool qrcode = false;
+		for (;;) {
+			layoutAddress(address, desc, qrcode, false, msg->address_n, msg->address_n_count);
+			if (protectButton(ButtonRequestType_ButtonRequest_Address, false)) {
+				break;
+			}
+			qrcode = !qrcode;
 		}
 	}
 
@@ -875,7 +789,7 @@ void fsm_msgEthereumSignMessage(EthereumSignMessage *msg)
 
 	CHECK_PIN
 
-	const HDNode *node = fsm_getDerivedNode(SECP256K1_NAME, msg->address_n, msg->address_n_count, NULL);
+	const HDNode *node = fsm_getDerivedNode(SECP256K1_NAME, msg->address_n, msg->address_n_count);
 	if (!node) return;
 
 	ethereum_message_sign(msg, node, resp);
@@ -937,7 +851,7 @@ void fsm_msgSignMessage(SignMessage *msg)
 
 	const CoinInfo *coin = fsm_getCoin(msg->has_coin_name, msg->coin_name);
 	if (!coin) return;
-	HDNode *node = fsm_getDerivedNode(coin->curve_name, msg->address_n, msg->address_n_count, NULL);
+	HDNode *node = fsm_getDerivedNode(SECP256K1_NAME, msg->address_n, msg->address_n_count);
 	if (!node) return;
 
 	layoutProgressSwipe(_("Signing"), 0);
@@ -1019,7 +933,7 @@ void fsm_msgSignIdentity(SignIdentity *msg)
 	if (msg->has_ecdsa_curve_name) {
 		curve = msg->ecdsa_curve_name;
 	}
-	HDNode *node = fsm_getDerivedNode(curve, address_n, 5, NULL);
+	HDNode *node = fsm_getDerivedNode(curve, address_n, 5);
 	if (!node) return;
 
 	bool sign_ssh = msg->identity.has_proto && (strcmp(msg->identity.proto, "ssh") == 0);
@@ -1096,7 +1010,7 @@ void fsm_msgGetECDHSessionKey(GetECDHSessionKey *msg)
 		curve = msg->ecdsa_curve_name;
 	}
 
-	const HDNode *node = fsm_getDerivedNode(curve, address_n, 5, NULL);
+	const HDNode *node = fsm_getDerivedNode(curve, address_n, 5);
 	if (!node) return;
 
 	int result_size = 0;
@@ -1132,7 +1046,7 @@ void fsm_msgEncryptMessage(EncryptMessage *msg)
 
 		CHECK_PIN
 
-		node = fsm_getDerivedNode(SECP256K1_NAME, msg->address_n, msg->address_n_count, NULL);
+		node = fsm_getDerivedNode(SECP256K1_NAME, msg->address_n, msg->address_n_count);
 		if (!node) return;
 		hdnode_get_address_raw(node, coin->address_type, address_raw);
 	}
@@ -1169,7 +1083,7 @@ void fsm_msgDecryptMessage(DecryptMessage *msg)
 
 	CHECK_PIN
 
-	const HDNode *node = fsm_getDerivedNode(SECP256K1_NAME, msg->address_n, msg->address_n_count, NULL);
+	const HDNode *node = fsm_getDerivedNode(SECP256K1_NAME, msg->address_n, msg->address_n_count);
 	if (!node) return;
 
 	layoutProgressSwipe(_("Decrypting"), 0);
@@ -1212,13 +1126,6 @@ void fsm_msgRecoveryDevice(RecoveryDevice *msg)
 
 	CHECK_PARAM(!msg->has_word_count || msg->word_count == 12 || msg->word_count == 18 || msg->word_count == 24, _("Invalid word count"));
 
-	layoutDialogSwipe(&bmp_icon_question, _("Cancel"), _("Confirm"), NULL, _("Do you really want to"), _("recover the device?"), NULL, NULL, NULL, NULL);
-	if (!protectButton(ButtonRequestType_ButtonRequest_ProtectCall, false)) {
-		fsm_sendFailure(FailureType_Failure_ActionCancelled, NULL);
-		layoutHome();
-		return;
-	}
-
 	recovery_init(
 		msg->has_word_count ? msg->word_count : 12,
 		msg->has_passphrase_protection && msg->passphrase_protection,
@@ -1246,7 +1153,6 @@ void fsm_msgSetU2FCounter(SetU2FCounter *msg)
 		return;
 	}
 	storage_setU2FCounter(msg->u2f_counter);
-	storage_update();
 	fsm_sendSuccess(_("U2F counter set"));
 	layoutHome();
 }
@@ -1265,7 +1171,7 @@ void fsm_msgNEMGetAddress(NEMGetAddress *msg)
 
 	RESP_INIT(NEMAddress);
 
-	HDNode *node = fsm_getDerivedNode(ED25519_KECCAK_NAME, msg->address_n, msg->address_n_count, NULL);
+	HDNode *node = fsm_getDerivedNode(ED25519_KECCAK_NAME, msg->address_n, msg->address_n_count);
 	if (!node) return;
 
 	if (!hdnode_get_nem_address(node, msg->network, resp->address))
@@ -1276,8 +1182,13 @@ void fsm_msgNEMGetAddress(NEMGetAddress *msg)
 		strlcpy(desc, network, sizeof(desc));
 		strlcat(desc, ":", sizeof(desc));
 
-		if (!fsm_layoutAddress(resp->address, desc, true, msg->address_n, msg->address_n_count)) {
-			return;
+		bool qrcode = false;
+		for (;;) {
+			layoutAddress(resp->address, desc, qrcode, true, msg->address_n, msg->address_n_count);
+			if (protectButton(ButtonRequestType_ButtonRequest_Address, false)) {
+				break;
+			}
+			qrcode = !qrcode;
 		}
 	}
 
@@ -1338,7 +1249,7 @@ void fsm_msgNEMSignTx(NEMSignTx *msg) {
 
 	RESP_INIT(NEMSignedTx);
 
-	HDNode *node = fsm_getDerivedNode(ED25519_KECCAK_NAME, msg->transaction.address_n, msg->transaction.address_n_count, NULL);
+	HDNode *node = fsm_getDerivedNode(ED25519_KECCAK_NAME, msg->transaction.address_n, msg->transaction.address_n_count);
 	if (!node) return;
 
 	hdnode_fill_public_key(node);
@@ -1473,72 +1384,6 @@ void fsm_msgNEMSignTx(NEMSignTx *msg) {
 	layoutHome();
 }
 
-void fsm_msgNEMDecryptMessage(NEMDecryptMessage *msg)
-{
-	RESP_INIT(NEMDecryptedMessage);
-
-	CHECK_INITIALIZED
-
-	CHECK_PARAM(nem_network_name(msg->network), _("Invalid NEM network"));
-	CHECK_PARAM(msg->has_payload, _("No payload provided"));
-	CHECK_PARAM(msg->payload.size >= NEM_ENCRYPTED_PAYLOAD_SIZE(0), _("Invalid encrypted payload"));
-	CHECK_PARAM(msg->has_public_key, _("No public key provided"));
-	CHECK_PARAM(msg->public_key.size == 32, _("Invalid public key"));
-
-	char address[NEM_ADDRESS_SIZE + 1];
-	nem_get_address(msg->public_key.bytes, msg->network, address);
-
-	layoutNEMDialog(&bmp_icon_question,
-		_("Cancel"),
-		_("Confirm"),
-		_("Decrypt message"),
-		_("Confirm address?"),
-		address);
-	if (!protectButton(ButtonRequestType_ButtonRequest_Other, false)) {
-		fsm_sendFailure(FailureType_Failure_ActionCancelled, NULL);
-		layoutHome();
-		return;
-	}
-
-	CHECK_PIN
-
-	const HDNode *node = fsm_getDerivedNode(ED25519_KECCAK_NAME, msg->address_n, msg->address_n_count, NULL);
-	if (!node) return;
-
-	const uint8_t *salt = msg->payload.bytes;
-	uint8_t *iv = &msg->payload.bytes[NEM_SALT_SIZE];
-
-	const uint8_t *payload = &msg->payload.bytes[NEM_SALT_SIZE + AES_BLOCK_SIZE];
-	size_t size = msg->payload.size - NEM_SALT_SIZE - AES_BLOCK_SIZE;
-
-	// hdnode_nem_decrypt mutates the IV, so this will modify msg
-	bool ret = hdnode_nem_decrypt(node,
-			msg->public_key.bytes,
-			iv,
-			salt,
-			payload,
-			size,
-			resp->payload.bytes);
-	if (!ret) {
-		fsm_sendFailure(FailureType_Failure_ProcessError, _("Failed to decrypt payload"));
-		layoutHome();
-		return;
-	}
-
-	resp->has_payload = true;
-	resp->payload.size = NEM_DECRYPTED_SIZE(resp->payload.bytes, size);
-
-	layoutNEMTransferPayload(resp->payload.bytes, resp->payload.size, true);
-	if (!protectButton(ButtonRequestType_ButtonRequest_Other, false)) {
-		fsm_sendFailure(FailureType_Failure_ActionCancelled, NULL);
-		layoutHome();
-		return;
-	}
-
-	msg_write(MessageType_MessageType_NEMDecryptedMessage, resp);
-	layoutHome();
-}
-
 void fsm_msgCosiCommit(CosiCommit *msg)
 {
 	RESP_INIT(CosiCommitment);
@@ -1556,7 +1401,7 @@ void fsm_msgCosiCommit(CosiCommit *msg)
 
 	CHECK_PIN
 
-	const HDNode *node = fsm_getDerivedNode(ED25519_NAME, msg->address_n, msg->address_n_count, NULL);
+	HDNode *node = fsm_getDerivedNode(ED25519_NAME, msg->address_n, msg->address_n_count);
 	if (!node) return;
 
 	uint8_t nonce[32];
@@ -1596,7 +1441,7 @@ void fsm_msgCosiSign(CosiSign *msg)
 
 	CHECK_PIN
 
-	const HDNode *node = fsm_getDerivedNode(ED25519_NAME, msg->address_n, msg->address_n_count, NULL);
+	HDNode *node = fsm_getDerivedNode(ED25519_NAME, msg->address_n, msg->address_n_count);
 	if (!node) return;
 
 	uint8_t nonce[32];
@@ -1629,9 +1474,9 @@ void fsm_msgDebugLinkGetState(DebugLinkGetState *msg)
 	resp.layout.size = OLED_BUFSIZE;
 	memcpy(resp.layout.bytes, oledGetBuffer(), OLED_BUFSIZE);
 
-	if (storage_hasPin()) {
+	if (storage.has_pin) {
 		resp.has_pin = true;
-		strlcpy(resp.pin, storage_getPin(), sizeof(resp.pin));
+		strlcpy(resp.pin, storage.pin, sizeof(resp.pin));
 	}
 
 	resp.has_matrix = true;
@@ -1649,18 +1494,18 @@ void fsm_msgDebugLinkGetState(DebugLinkGetState *msg)
 	resp.has_recovery_word_pos = true;
 	resp.recovery_word_pos = recovery_get_word_pos();
 
-	if (storage_hasMnemonic()) {
+	if (storage.has_mnemonic) {
 		resp.has_mnemonic = true;
-		strlcpy(resp.mnemonic, storage_getMnemonic(), sizeof(resp.mnemonic));
+		strlcpy(resp.mnemonic, storage.mnemonic, sizeof(resp.mnemonic));
 	}
 
-	if (storage_hasNode()) {
+	if (storage.has_node) {
 		resp.has_node = true;
-		storage_dumpNode(&(resp.node));
+		memcpy(&(resp.node), &(storage.node), sizeof(HDNode));
 	}
 
 	resp.has_passphrase_protection = true;
-	resp.passphrase_protection = storage_hasPassphraseProtection();
+	resp.passphrase_protection = storage.has_passphrase_protection && storage.passphrase_protection;
 
 	msg_debug_write(MessageType_MessageType_DebugLinkState, &resp);
 }

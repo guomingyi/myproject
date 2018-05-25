@@ -21,72 +21,20 @@
 #define __STORAGE_H__
 
 #include "types.pb.h"
+#include "storage.pb.h"
 #include "messages.pb.h"
 #include "bip32.h"
 
-#define STORAGE_FIELD(TYPE, NAME) \
-    bool has_##NAME; \
-    TYPE NAME;
-
-#define STORAGE_STRING(NAME, SIZE) \
-    bool has_##NAME; \
-    char NAME[SIZE];
-
-#define STORAGE_BYTES(NAME, SIZE) \
-    bool has_##NAME; \
-    struct { \
-        size_t size; \
-        uint8_t bytes[SIZE]; \
-    } NAME;
-
-#define STORAGE_BOOL(NAME)   STORAGE_FIELD(bool,          NAME)
-#define STORAGE_NODE(NAME)   STORAGE_FIELD(StorageHDNode, NAME)
-#define STORAGE_UINT32(NAME) STORAGE_FIELD(uint32_t,      NAME)
-
-typedef struct {
-    uint32_t depth;
-    uint32_t fingerprint;
-    uint32_t child_num;
-    struct {
-        size_t size;
-        uint8_t bytes[32];
-    } chain_code;
-
-    STORAGE_BYTES(private_key, 32);
-    STORAGE_BYTES(public_key,  33);
-} StorageHDNode;
-
-typedef struct _Storage {
-    uint32_t version;
-
-    STORAGE_NODE   (node)
-    STORAGE_STRING (mnemonic, 241)
-    STORAGE_BOOL   (passphrase_protection)
-    STORAGE_UINT32 (pin_failed_attempts)
-    STORAGE_STRING (pin, 10)
-    STORAGE_STRING (language, 17)
-    STORAGE_STRING (label, 33)
-    STORAGE_BOOL   (imported)
-    STORAGE_BYTES  (homescreen, 1024)
-    STORAGE_UINT32 (u2f_counter)
-    STORAGE_BOOL   (needs_backup)
-    STORAGE_UINT32 (flags)
-    STORAGE_NODE   (u2froot)
-} Storage;
-
-extern Storage storageUpdate;
-
 void storage_init(void);
-void storage_generate_uuid(void);
-void storage_clear_update(void);
-void storage_update(void);
+void storage_reset_uuid(void);
+void storage_reset(void);
+void storage_commit(void);
 void session_clear(bool clear_pin);
 
 void storage_loadDevice(LoadDevice *msg);
 
 const uint8_t *storage_getSeed(bool usePassphrase);
 
-bool storage_getU2FRoot(HDNode *node);
 bool storage_getRootNode(HDNode *node, const char *curve, bool usePassphrase);
 
 const char *storage_getLabel(void);
@@ -96,28 +44,17 @@ const char *storage_getLanguage(void);
 void storage_setLanguage(const char *lang);
 
 void storage_setPassphraseProtection(bool passphrase_protection);
-bool storage_hasPassphraseProtection(void);
 
 const uint8_t *storage_getHomescreen(void);
 void storage_setHomescreen(const uint8_t *data, uint32_t size);
 
 void session_cachePassphrase(const char *passphrase);
 bool session_isPassphraseCached(void);
-bool session_getState(const uint8_t *salt, uint8_t *state, const char *passphrase);
 
-void storage_setMnemonic(const char *mnemonic);
 bool storage_containsMnemonic(const char *mnemonic);
-bool storage_hasMnemonic(void);
-const char *storage_getMnemonic(void);
-
-bool storage_hasNode(void);
-#if DEBUG_LINK
-void storage_dumpNode(HDNodeType *node);
-#endif
 
 bool storage_containsPin(const char *pin);
 bool storage_hasPin(void);
-const char *storage_getPin(void);
 void storage_setPin(const char *pin);
 void session_cachePin(void);
 bool session_isPinCached(void);
@@ -131,16 +68,14 @@ void storage_setU2FCounter(uint32_t u2fcounter);
 
 bool storage_isInitialized(void);
 
-bool storage_isImported(void);
-void storage_setImported(bool imported);
-
 bool storage_needsBackup(void);
-void storage_setNeedsBackup(bool needs_backup);
 
 void storage_applyFlags(uint32_t flags);
 uint32_t storage_getFlags(void);
 
 void storage_wipe(void);
+
+extern Storage storage;
 
 extern char storage_uuid_str[25];
 

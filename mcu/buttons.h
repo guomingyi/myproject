@@ -32,7 +32,6 @@ struct buttonState {
 
 extern struct buttonState button;
 
-uint16_t buttonRead(void);
 void buttonUpdate(void);
 
 #ifndef BTN_PORT

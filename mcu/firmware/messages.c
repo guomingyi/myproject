@@ -48,12 +48,7 @@ const pb_field_t *MessageFields(char type, char dir, uint16_t msg_id)
 {
 	const struct MessagesMap_t *m = MessagesMap;
 	while (m->type) {
-#if EMULATOR
-		(void) type;
-		if (dir == m->dir && msg_id == m->msg_id) {
-#else
 		if (type == m->type && dir == m->dir && msg_id == m->msg_id) {
-#endif
 			return m->fields;
 		}
 		m++;
@@ -65,12 +60,7 @@ void MessageProcessFunc(char type, char dir, uint16_t msg_id, void *ptr)
 {
 	const struct MessagesMap_t *m = MessagesMap;
 	while (m->type) {
-#if EMULATOR
-		(void) type;
-		if (dir == m->dir && msg_id == m->msg_id) {
-#else
 		if (type == m->type && dir == m->dir && msg_id == m->msg_id) {
-#endif
 			m->process_func(ptr);
 			return;
 		}
@@ -232,7 +222,7 @@ enum {
 
 void msg_process(char type, uint16_t msg_id, const pb_field_t *fields, uint8_t *msg_raw, uint32_t msg_size)
 {
-	static CONFIDENTIAL uint8_t msg_data[MSG_IN_SIZE];
+	static uint8_t msg_data[MSG_IN_SIZE];
 	memset(msg_data, 0, sizeof(msg_data));
 	pb_istream_t stream = pb_istream_from_buffer(msg_raw, msg_size);
 	bool status = pb_decode(&stream, fields, msg_data);
@@ -246,7 +236,7 @@ void msg_process(char type, uint16_t msg_id, const pb_field_t *fields, uint8_t *
 void msg_read_common(char type, const uint8_t *buf, int len)
 {
 	static char read_state = READSTATE_IDLE;
-	static CONFIDENTIAL uint8_t msg_in[MSG_IN_SIZE];
+	static uint8_t msg_in[MSG_IN_SIZE];
 	static uint16_t msg_id = 0xFFFF;
 	static uint32_t msg_size = 0;
 	static uint32_t msg_pos = 0;
@@ -314,16 +304,7 @@ const uint8_t *msg_debug_out_data(void)
 
 #endif
 
-CONFIDENTIAL uint8_t msg_tiny[128];
-_Static_assert(sizeof(msg_tiny) >= sizeof(Cancel), "msg_tiny too tiny");
-_Static_assert(sizeof(msg_tiny) >= sizeof(Initialize), "msg_tiny too tiny");
-_Static_assert(sizeof(msg_tiny) >= sizeof(PassphraseAck), "msg_tiny too tiny");
-_Static_assert(sizeof(msg_tiny) >= sizeof(ButtonAck), "msg_tiny too tiny");
-_Static_assert(sizeof(msg_tiny) >= sizeof(PinMatrixAck), "msg_tiny too tiny");
-#if DEBUG_LINK
-_Static_assert(sizeof(msg_tiny) >= sizeof(DebugLinkDecision), "msg_tiny too tiny");
-_Static_assert(sizeof(msg_tiny) >= sizeof(DebugLinkGetState), "msg_tiny too tiny");
-#endif
+uint8_t msg_tiny[64];
 uint16_t msg_tiny_id = 0xFFFF;
 
 void msg_read_tiny(const uint8_t *buf, int len)

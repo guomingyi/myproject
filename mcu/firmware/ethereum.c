@@ -33,7 +33,6 @@
 #include "util.h"
 #include "gettext.h"
 #include "ethereum_tokens.h"
-#include "memzero.h"
 
 /* maximum supported chain id.  v must fit in an uint32_t. */
 #define MAX_CHAIN_ID 2147483630
@@ -194,7 +193,7 @@ static void send_signature(void)
 		return;
 	}
 
-	memzero(privkey, sizeof(privkey));
+	memset(privkey, 0, sizeof(privkey));
 
 	/* Send back the result */
 	msg_tx_request.has_data_length = false;
@@ -593,7 +592,7 @@ void ethereum_signing_txack(EthereumTxAck *tx)
 void ethereum_signing_abort(void)
 {
 	if (ethereum_signing) {
-		memzero(privkey, sizeof(privkey));
+		memset(privkey, 0, sizeof(privkey));
 		layoutHome();
 		ethereum_signing = false;
 	}

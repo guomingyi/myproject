@@ -22,19 +22,14 @@
 
 #include <stdint.h>
 #include <stdio.h>
-#include <errno.h>
-
 extern uint32_t __stack_chk_guard;
 
 void setup(void);
 void setupApp(void);
 
-void mpu_config(void);
+void uart_init(const char *tag);
+void uart_printf(const char *str);
 
-// for uart print
-#define USART_PRINT (1)
+#define UART_DEBUG
 
-void uart_str(char *s);
-void uart_val(int a);
-int usart_init(void);
 #endif
