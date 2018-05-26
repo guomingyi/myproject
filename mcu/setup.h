@@ -30,6 +30,4 @@ void setupApp(void);
 void uart_init(const char *tag);
 void uart_printf(const char *str);
 
-#define UART_DEBUG
-
 #endif

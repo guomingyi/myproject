@@ -131,9 +131,7 @@ int main(void)
 #ifndef APPVER
 	setup();
 #endif
-    #ifndef UART_DEBUG
 	__stack_chk_guard = random32(); // this supports compiler provided unpredictable stack protection checks
-    #endif
 #ifndef APPVER
 	memory_protect();
     uart_printf("bootloader-oledInit:\n");

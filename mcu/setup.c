@@ -22,6 +22,8 @@
 #include <libopencm3/stm32/gpio.h>
 #include <libopencm3/stm32/spi.h>
 #include <libopencm3/stm32/f2/rng.h>
+#include <libopencm3/stm32/f2/rcc.h>
+#include <libopencm3/stm32/flash.h>
 
 #include "rng.h"
 #include "layout.h"
@@ -44,6 +46,50 @@ void nmi_handler(void)
 	}
 }
 
+#if 1 // for debug, resovled sys hang issue.
+const struct rcc_clock_scale rcc_hse_8mhz_3v3_ext[3] = {
+    { /* 48MHz */
+        .pllm = 8,
+        .plln = 96,
+        .pllp = 2,
+        .pllq = 2,
+        .hpre = RCC_CFGR_HPRE_DIV_NONE,
+        .ppre1 = RCC_CFGR_PPRE_DIV_4,
+        .ppre2 = RCC_CFGR_PPRE_DIV_2,
+        .flash_config = FLASH_ACR_DCEN | FLASH_ACR_ICEN |
+            FLASH_ACR_LATENCY_3WS,
+        .apb1_frequency = 12000000,
+        .apb2_frequency = 24000000,
+    },
+    { /* 84MHz */
+        .pllm = 8,
+        .plln = 336,
+        .pllp = 4,
+        .pllq = 7,
+        .hpre = RCC_CFGR_HPRE_DIV_NONE,
+        .ppre1 = RCC_CFGR_PPRE_DIV_2,
+        .ppre2 = RCC_CFGR_PPRE_DIV_NONE,
+        .flash_config = FLASH_ACR_DCEN | FLASH_ACR_ICEN |
+            FLASH_ACR_LATENCY_2WS,
+        .apb1_frequency = 42000000,
+        .apb2_frequency = 84000000,
+    },
+    { /* 120MHz */
+        .pllm = 8,
+        .plln = 240,
+        .pllp = 2,
+        .pllq = 5,
+        .hpre = RCC_CFGR_HPRE_DIV_NONE,
+        .ppre1 = RCC_CFGR_PPRE_DIV_4,
+        .ppre2 = RCC_CFGR_PPRE_DIV_2,
+        .flash_config = FLASH_ACR_DCEN | FLASH_ACR_ICEN |
+            FLASH_ACR_LATENCY_3WS,
+        .apb1_frequency = 30000000,
+        .apb2_frequency = 60000000,
+    },
+};
+#endif
+
 void setup(void)
 {
 	// set SCB_CCR STKALIGN bit to make sure 8-byte stack alignment on exception entry is in effect.
@@ -55,15 +101,12 @@ void setup(void)
 	SCB_CCR |= SCB_CCR_STKALIGN;
 
 	// setup clock
-    #ifndef UART_DEBUG
-	struct rcc_clock_scale clock = rcc_hse_8mhz_3v3[RCC_CLOCK_3V3_120MHZ];
+	/** struct rcc_clock_scale clock = rcc_hse_8mhz_3v3[RCC_CLOCK_3V3_120MHZ]; */
+	struct rcc_clock_scale clock = rcc_hse_8mhz_3v3_ext[1];
 	rcc_clock_setup_hse_3v3(&clock);
-    #else
-    uart_printf("UART_DEBUG#setup() :not setup external clock...\n");
-    #endif
 
 	// enable GPIO clock - A (oled), B(oled), C (buttons)
-	/** rcc_periph_clock_enable(RCC_GPIOA); */
+    rcc_periph_clock_enable(RCC_GPIOA);
 	rcc_periph_clock_enable(RCC_GPIOB);
 	rcc_periph_clock_enable(RCC_GPIOC);
 
@@ -78,11 +121,7 @@ void setup(void)
 	RNG_CR |= RNG_CR_RNGEN;
 	// to be extra careful and heed the STM32F205xx Reference manual, Section 20.3.1
 	// we don't use the first random number generated after setting the RNGEN bit in setup
-    #ifndef UART_DEBUG
 	random32();
-    #else
-    uart_printf("UART_DEBUG#setup() :not call random32()\n");
-    #endif
 
 	// enable CSS (Clock Security System)
 	RCC_CR |= RCC_CR_CSSON;
@@ -126,23 +165,13 @@ void setupApp(void)
 	// this is to try to comply with STM32F205xx Reference manual - Section 20.3.1:
 	// "Each subsequent generated random number has to be compared with the previously generated
 	// number. The test fails if any two compared numbers are equal (continuous random number generator test)."
-    #ifndef UART_DEBUG
 	random32();
-    #else
-    uart_printf("UART_DEBUG#setupApp() :not call random32()\n");
-    #endif
 
 	// enable CSS (Clock Security System)
-    #ifndef UART_DEBUG
 	RCC_CR |= RCC_CR_CSSON;
-    #endif
 
-    uart_printf("setupApp() :11\n");
 	// hotfix for old bootloader
 	gpio_mode_setup(GPIOA, GPIO_MODE_INPUT, GPIO_PUPD_NONE, GPIO9);
-    uart_printf("setupApp() :12\n");
 	spi_init_master(SPI1, 
         SPI_CR1_BAUDRATE_FPCLK_DIV_8, SPI_CR1_CPOL_CLK_TO_0_WHEN_IDLE, SPI_CR1_CPHA_CLK_TRANSITION_1, SPI_CR1_DFF_8BIT, SPI_CR1_MSBFIRST);
-    
-    uart_printf("setupApp() :13\n");
 }

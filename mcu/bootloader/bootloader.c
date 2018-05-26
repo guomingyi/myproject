@@ -34,6 +34,8 @@
 #include "serialno.h"
 #include "rng.h"
 
+/** #define FOR_TEST */
+
 void layoutFirmwareHash(const uint8_t *hash)
 {
 	char str[4][17];
@@ -131,9 +133,7 @@ int main(void)
 #ifndef APPVER
 	setup();
 #endif
-    #ifndef UART_DEBUG
 	__stack_chk_guard = random32(); // this supports compiler provided unpredictable stack protection checks
-    #endif
 #ifndef APPVER
 	memory_protect();
     uart_printf("bootloader-oledInit:\n");
@@ -163,10 +163,10 @@ int main(void)
 	}
 #endif
 
-    // for test
-    if(1) {
-        load_app();
-    }
+#ifdef FOR_TEST
+    load_app();
+    usbLoop(true);
+#endif
 
 	bootloader_loop();
 

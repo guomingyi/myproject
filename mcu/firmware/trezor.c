@@ -91,10 +91,7 @@ int main(void)
 #else
     uart_printf("application-setupApp():\n");
 	setupApp();
-    #ifndef UART_DEBUG
-    ssss
 	__stack_chk_guard = random32(); // this supports compiler provided unpredictable stack protection checks
-    #endif
 #endif
 
 #if FASTFLASH
