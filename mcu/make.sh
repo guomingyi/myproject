@@ -7,7 +7,7 @@
 # $ sudo docker images
 # REPOSITORY                             TAG                 IMAGE ID            CREATED             SIZE
 # linux_mcu_build_env.image              latest              4421482ea61f        25 hours ago        903MB
-IMAGE=linux_mcu_build_env.image
+IMAGE=mingyi/mcu.envx
 
 TAG_bl=bl1.4.0
 TAG_FW=v1.6.1
@@ -67,7 +67,7 @@ fi
 
 # docker build
 # if [ "y$ACTION" = "yall" ] ;then
-  docker run -it -v $build_path:$build_path $IMAGE /bin/sh -c "\
+  docker run --rm -it -v $build_path:$build_path $IMAGE /bin/sh -c "\
     cd $build_path && \
     make -C vendor/libopencm3 && \
     make && \
@@ -83,6 +83,8 @@ fi
     cp firmware/trezor.elf $ELFFILE_FW \
   "
 # fi
+
+#docker rm `docker ps -a|sed -n '2p'|awk '{print $1}'`
 
 # show
 /usr/bin/env python -c "
